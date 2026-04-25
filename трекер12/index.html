@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Трекер ФУ</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Nunito',system-ui,sans-serif;background:#f5f5f7;color:#1a1a2e;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
+.bottom-nav{display:none}
+@media(max-width:1024px){
+  .bottom-nav{display:flex!important}
+  .sidebar{display:none!important}
+  .main-wrap{padding-bottom:64px!important}
+  .modal-box{width:calc(100vw - 24px)!important;max-width:500px;padding:16px!important}
+  .stat-grid-5{grid-template-columns:repeat(3,1fr)!important}
+  .stat-grid-4{grid-template-columns:repeat(2,1fr)!important}
+  .top-actions{flex-wrap:wrap!important}
+  .phase-tabs{flex-wrap:wrap!important}
+  .debtor-grid{grid-template-columns:1fr!important}
+}
+@media(max-width:480px){
+  .stat-grid-5{grid-template-columns:repeat(2,1fr)!important}
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-firestore-compat.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script src="js/utils.js"></script>
+<script src="js/data.js"></script>
+<script src="js/logic.js"></script>
+<script src="js/report.js"></script>
+<script src="js/firebase.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
