@@ -22,9 +22,15 @@ function App(){
 
   var savedToCloud=useRef(false);
   useEffect(()=>{
+    var savedAid=null;
+    try{var ls=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(ls&&ls.a)savedAid=ls.a}catch(e){}
     if(FU.cloudReady){
       FU.loadFromCloud().then(function(cd){
-        if(cd&&cd.length){setDebtors(cd);setAid(cd[0].id)}
+        if(cd&&cd.length){
+          setDebtors(cd);
+          var validAid=savedAid&&cd.find(function(d){return d.id===savedAid})?savedAid:null;
+          setAid(validAid);
+        }
         else{try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}}
         savedToCloud.current=true;
       });
