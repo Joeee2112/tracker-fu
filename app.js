@@ -20,22 +20,23 @@ function App(){
   var[credFilter,setCredFilter]=useState("all");
   var fileRef=useRef(null);
 
-  var skipNext=useRef(false);
+  var savedToCloud=useRef(false);
   useEffect(()=>{
     if(FU.cloudReady){
       FU.loadFromCloud().then(function(cd){
         if(cd&&cd.length){setDebtors(cd);setAid(cd[0].id)}
-        else{try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a);skipNext.current=true;FU.saveToCloud(s.d)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a);skipNext.current=true;FU.saveToCloud(FU.SEED_DATA.d)}}catch(e){}}
+        else{try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}}
+        savedToCloud.current=true;
       });
-      FU.listenCloud(function(data){if(skipNext.current){skipNext.current=false;return}if(data&&data.length)setDebtors(data)});
     }else{
       try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}
+      savedToCloud.current=true;
     }
   },[]);
   useEffect(()=>{
-    if(debtors.length===0)return;
+    if(!savedToCloud.current||debtors.length===0)return;
     try{localStorage.setItem(FU.STORAGE_KEY,JSON.stringify({d:debtors,a:aid}))}catch(e){}
-    if(FU.cloudReady){skipNext.current=true;FU.saveToCloud(debtors)}
+    if(FU.cloudReady){FU.saveToCloud(debtors)}
   },[debtors,aid]);
 
   var bg=FU.bg,sf=FU.sf,bd=FU.bd,tx=FU.tx,txm=FU.txm,ac=FU.ac,inp=FU.inp,tg=FU.tg;
@@ -223,7 +224,7 @@ function App(){
         var first=new Date(y,m,1);var last=new Date(y,m+1,0);
         var startDow=(first.getDay()+6)%7;var dim=last.getDate();
         var cells=[];for(var i=0;i<startDow;i++)cells.push(null);for(var d=1;d<=dim;d++)cells.push(d);while(cells.length%7!==0)cells.push(null);
-        var tbd={};deb.tasks.forEach(function(t){if(!t.deadline)return;var dd=new Date(t.deadline);if(dd.getFullYear()===y&&dd.getMonth()===m){var day=dd.getDate();if(!tbd[day])tbd[day]=[];tbd[day].push(t)}});
+        var tbd={};allTasks.forEach(function(t){if(!t.deadline)return;var dd=new Date(t.deadline);if(dd.getFullYear()===y&&dd.getMonth()===m){var day=dd.getDate();if(!tbd[day])tbd[day]=[];tbd[day].push(t)}});
         var td=new Date();var today=(td.getFullYear()===y&&td.getMonth()===m)?td.getDate():null;
         return React.createElement("div",null,
           React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}},
