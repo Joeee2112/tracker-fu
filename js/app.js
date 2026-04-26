@@ -25,33 +25,33 @@ function App(){
   useEffect(()=>{
     var savedAid=null;
     try{var ls=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(ls&&ls.a)savedAid=ls.a}catch(e){}
+    var initDone=function(){savedToCloud.current=true;console.log("[FU] Init complete, savedToCloud=true")};
     if(FU.cloudReady){
       FU.loadFromCloud().then(function(cd){
         if(cd&&cd.length){
-          setDebtors(cd);
           var validAid=savedAid&&cd.find(function(d){return d.id===savedAid})?savedAid:null;
+          setDebtors(cd);
           setAid(validAid);
+          console.log("[FU] Loaded from cloud:",cd.length,"debtors, active:",validAid);
         }
-        else{try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}}
-        savedToCloud.current=true;
-      });
+        else{try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a);console.log("[FU] Cloud empty, loaded from localStorage")}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a);console.log("[FU] Cloud empty, loaded SEED")}}catch(e){}}
+        // Set flag AFTER state setters so first useEffect run is skipped
+        setTimeout(function(){initDone()},0);
+      }).catch(function(e){console.error("[FU] Load failed:",e);setTimeout(initDone,0)});
     }else{
       try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}
-      savedToCloud.current=true;
+      setTimeout(initDone,0);
     }
-    // Save before page unload
-    var beforeUnload=function(){if(saveTimer.current){clearTimeout(saveTimer.current);if(FU.cloudReady&&debtors.length>0)FU.saveToCloud(debtors)}};
+    var beforeUnload=function(){if(saveTimer.current){clearTimeout(saveTimer.current);if(FU.cloudReady&&debtors.length>0)FU.saveToCloud(debtors);console.log("[FU] Saved on unload")}};
     window.addEventListener("beforeunload",beforeUnload);
     return function(){window.removeEventListener("beforeunload",beforeUnload)};
   },[]);
   useEffect(()=>{
     if(!savedToCloud.current||debtors.length===0)return;
-    // Always save to localStorage instantly (sync, free)
-    try{localStorage.setItem(FU.STORAGE_KEY,JSON.stringify({d:debtors,a:aid}))}catch(e){}
-    // Debounce cloud save (2 sec) to avoid quota exhaustion
+    try{localStorage.setItem(FU.STORAGE_KEY,JSON.stringify({d:debtors,a:aid}));console.log("[FU] localStorage saved")}catch(e){console.error("[FU] localStorage save failed:",e)}
     if(FU.cloudReady){
       if(saveTimer.current)clearTimeout(saveTimer.current);
-      saveTimer.current=setTimeout(function(){FU.saveToCloud(debtors);saveTimer.current=null},2000);
+      saveTimer.current=setTimeout(function(){console.log("[FU] Triggering cloud save...");FU.saveToCloud(debtors);saveTimer.current=null},2000);
     }
   },[debtors,aid]);
 
