@@ -21,6 +21,7 @@ function App(){
   var fileRef=useRef(null);
 
   var savedToCloud=useRef(false);
+  var saveTimer=useRef(null);
   useEffect(()=>{
     var savedAid=null;
     try{var ls=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(ls&&ls.a)savedAid=ls.a}catch(e){}
@@ -38,11 +39,20 @@ function App(){
       try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}
       savedToCloud.current=true;
     }
+    // Save before page unload
+    var beforeUnload=function(){if(saveTimer.current){clearTimeout(saveTimer.current);if(FU.cloudReady&&debtors.length>0)FU.saveToCloud(debtors)}};
+    window.addEventListener("beforeunload",beforeUnload);
+    return function(){window.removeEventListener("beforeunload",beforeUnload)};
   },[]);
   useEffect(()=>{
     if(!savedToCloud.current||debtors.length===0)return;
+    // Always save to localStorage instantly (sync, free)
     try{localStorage.setItem(FU.STORAGE_KEY,JSON.stringify({d:debtors,a:aid}))}catch(e){}
-    if(FU.cloudReady){FU.saveToCloud(debtors)}
+    // Debounce cloud save (2 sec) to avoid quota exhaustion
+    if(FU.cloudReady){
+      if(saveTimer.current)clearTimeout(saveTimer.current);
+      saveTimer.current=setTimeout(function(){FU.saveToCloud(debtors);saveTimer.current=null},2000);
+    }
   },[debtors,aid]);
 
   var bg=FU.bg,sf=FU.sf,bd=FU.bd,tx=FU.tx,txm=FU.txm,ac=FU.ac,inp=FU.inp,tg=FU.tg;
