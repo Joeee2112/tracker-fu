@@ -1,4 +1,31 @@
 var useState=React.useState,useEffect=React.useEffect,useMemo=React.useMemo,useRef=React.useRef;
+
+// Helpers for creditor positions (multi-position support)
+var POS_TYPES=[
+  {id:"principal",label:"Основной долг",color:"#374151"},
+  {id:"penalty",label:"Пени / проценты",color:"#d97706"},
+  {id:"fine",label:"Штраф",color:"#dc2626"},
+  {id:"fee",label:"Госпошлина",color:"#6366f1"},
+  {id:"other",label:"Иное",color:"#64748b"}
+];
+function posTypeLbl(t){var x=POS_TYPES.find(function(p){return p.id===t});return x?x.label:t}
+function posTypeCol(t){var x=POS_TYPES.find(function(p){return p.id===t});return x?x.color:"#64748b"}
+
+// Get effective positions: if creditor has positions[], use them; otherwise generate from legacy principal/penalty
+function getPositions(c){
+  if(c.positions&&c.positions.length>0)return c.positions;
+  var out=[];
+  var pr=parseFloat(c.principal)||0,pe=parseFloat(c.penalty)||0;
+  if(pr>0)out.push({id:"_lp_"+c.id,type:"principal",amount:pr,queue:c.queue||"3",beyondRegistry:false});
+  if(pe>0)out.push({id:"_le_"+c.id,type:"penalty",amount:pe,queue:c.queue||"3",beyondRegistry:false});
+  return out;
+}
+
+// Sum total of positions (or legacy fields)
+function credTotal(c){return getPositions(c).reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0)}
+
+// Get all queues used by creditor (from positions)
+function credQueues(c){var qs={};getPositions(c).forEach(function(p){qs[p.queue||"3"]=true});return Object.keys(qs).sort()}
 function App(){
   var[debtors,setDebtors]=useState([]);
   var[aid,setAid]=useState(null);
@@ -68,7 +95,36 @@ function App(){
   var conflicts=useMemo(()=>deb?FU.checkConflict(deb.keyDates,deb.meetingFormat):[],[deb]);
   var fd=deb?FU.KD_META.filter(m=>deb.keyDates[m.id]).length:0;
   var reqStats=useMemo(()=>{if(!deb)return{t:0,w:0,d:0,ov:0,ct:0};var rs=deb.requests||[];return{t:rs.length,w:rs.filter(r=>r.status==="waiting"&&FU.dleft(r.deadline)>=0).length,d:rs.filter(r=>r.status==="done").length,ov:rs.filter(r=>r.status==="waiting"&&FU.dleft(r.deadline)<0&&!r.court).length,ct:rs.filter(r=>r.court).length}},[deb]);
-  var credStats=useMemo(()=>{if(!deb)return{t:0,inc:0,pen:0,noE:0,sum:0,sumPrincipal:0,sumPenalty:0,byQueue:{1:{total:0,principal:0,penalty:0,count:0},2:{total:0,principal:0,penalty:0,count:0},3:{total:0,principal:0,penalty:0,count:0}},objPending:0};var cs=deb.creditors||[];var inc=cs.filter(c=>c.status==="included");var bq={1:{total:0,principal:0,penalty:0,count:0},2:{total:0,principal:0,penalty:0,count:0},3:{total:0,principal:0,penalty:0,count:0}};inc.forEach(c=>{var q=c.queue||"3";if(!bq[q])bq[q]={total:0,principal:0,penalty:0,count:0};var pr=parseFloat(c.principal)||0;var pe=parseFloat(c.penalty)||0;bq[q].principal+=pr;bq[q].penalty+=pe;bq[q].total+=pr+pe;bq[q].count++});return{t:cs.length,inc:inc.length,pen:cs.filter(c=>c.status==="pending").length,noE:cs.filter(c=>!c.efrsb).length,sum:inc.reduce((s,c)=>s+(parseFloat(c.principal)||0)+(parseFloat(c.penalty)||0),0),sumPrincipal:inc.reduce((s,c)=>s+(parseFloat(c.principal)||0),0),sumPenalty:inc.reduce((s,c)=>s+(parseFloat(c.penalty)||0),0),byQueue:bq,objPending:cs.filter(c=>c.status==="pending"&&c.objectionDeadline&&FU.dleft(c.objectionDeadline)>=0&&!c.objectionFiled).length}},[deb]);
+  var credStats=useMemo(()=>{
+    if(!deb)return{t:0,inc:0,pen:0,noE:0,sum:0,sumPrincipal:0,sumPenalty:0,sumBeyond:0,byQueue:{1:{total:0,principal:0,penalty:0,count:0},2:{total:0,principal:0,penalty:0,count:0},3:{total:0,principal:0,penalty:0,count:0}},objPending:0};
+    var cs=deb.creditors||[];
+    var inc=cs.filter(function(c){return c.status==="included"});
+    var bq={1:{total:0,principal:0,penalty:0,count:0},2:{total:0,principal:0,penalty:0,count:0},3:{total:0,principal:0,penalty:0,count:0}};
+    var sumPrincipal=0,sumPenalty=0,sum=0,sumBeyond=0;
+    var seenInQ={1:{},2:{},3:{}};
+    inc.forEach(function(c){
+      var positions=getPositions(c);
+      positions.forEach(function(p){
+        var amt=parseFloat(p.amount)||0;
+        var q=p.queue||"3";
+        if(!bq[q])bq[q]={total:0,principal:0,penalty:0,count:0};
+        if(p.beyondRegistry){sumBeyond+=amt;return}
+        if(p.type==="principal"){bq[q].principal+=amt;sumPrincipal+=amt}
+        else{bq[q].penalty+=amt;sumPenalty+=amt}
+        bq[q].total+=amt;
+        sum+=amt;
+        if(!seenInQ[q][c.id]){seenInQ[q][c.id]=true;bq[q].count++}
+      });
+    });
+    return{
+      t:cs.length,inc:inc.length,
+      pen:cs.filter(function(c){return c.status==="pending"}).length,
+      noE:cs.filter(function(c){return!c.efrsb}).length,
+      sum:sum,sumPrincipal:sumPrincipal,sumPenalty:sumPenalty,sumBeyond:sumBeyond,
+      byQueue:bq,
+      objPending:cs.filter(function(c){return c.status==="pending"&&c.objectionDeadline&&FU.dleft(c.objectionDeadline)>=0&&!c.objectionFiled}).length
+    }
+  },[deb]);
   var dashReqOv=useMemo(()=>{var all=[];debtors.forEach(d=>{(d.requests||[]).forEach(r=>{if(r.status==="waiting"&&FU.dleft(r.deadline)<0)all.push({...r,dfio:d.fio})})});return all},[debtors]);
 
   // HANDLERS
@@ -101,8 +157,37 @@ function App(){
   var courtUpdate=(rid,field,val)=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,requests:(d.requests||[]).map(r=>r.id!==rid?r:{...r,court:{...r.court,[field]:val}})}))};
 
   // CREDITOR HANDLERS
-  var addCred=()=>{if(!credForm.name.trim())return;var nc={id:FU.uid(),name:credForm.name,principal:credForm.principal,penalty:credForm.penalty,amount:(parseFloat(credForm.principal)||0)+(parseFloat(credForm.penalty)||0),queue:credForm.queue,secured:credForm.secured,dateFiled:credForm.dateFiled,courtDate:credForm.courtDate,objectionDeadline:credForm.objectionDeadline,objectionFiled:credForm.objectionFiled,status:"pending",efrsb:false,efrsbDate:"",result:""};setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var j={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Требование: "+nc.name+" "+nc.amount.toLocaleString("ru-RU")+" \u20bd"};return{...d,creditors:[...(d.creditors||[]),nc],journal:[...d.journal,j]}}));setCredForm({name:"",principal:"",penalty:"",queue:"3",secured:false,dateFiled:"",courtDate:"",objectionDeadline:"",objectionFiled:false});setModal("creditors")};
-  var saveCred=()=>{if(!editCred||!editCred.name.trim())return;var updated={...editCred,amount:(parseFloat(editCred.principal)||0)+(parseFloat(editCred.penalty)||0)};setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,creditors:(d.creditors||[]).map(c=>c.id!==updated.id?c:updated)}));setEditCred(null);setModal("creditors")};
+  var addCred=()=>{
+    if(!credForm.name.trim())return;
+    var positions=credForm.positions&&credForm.positions.length>0?credForm.positions:[
+      {id:FU.uid(),type:"principal",amount:parseFloat(credForm.principal)||0,queue:credForm.queue||"3",beyondRegistry:false}
+    ];
+    var totalAmount=positions.reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+    var prSum=positions.filter(function(p){return p.type==="principal"&&!p.beyondRegistry}).reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+    var peSum=positions.filter(function(p){return p.type!=="principal"&&!p.beyondRegistry}).reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+    var nc={id:FU.uid(),name:credForm.name,principal:prSum,penalty:peSum,amount:totalAmount,queue:credForm.queue,positions:positions,secured:credForm.secured,dateFiled:credForm.dateFiled,courtDate:credForm.courtDate,objectionDeadline:credForm.objectionDeadline,objectionFiled:credForm.objectionFiled,status:"pending",efrsb:false,efrsbDate:"",result:""};
+    setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var j={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Требование: "+nc.name+" "+totalAmount.toLocaleString("ru-RU")+" \u20bd"};return{...d,creditors:[...(d.creditors||[]),nc],journal:[...d.journal,j]}}));
+    setCredForm({name:"",principal:"",penalty:"",queue:"3",secured:false,dateFiled:"",courtDate:"",objectionDeadline:"",objectionFiled:false,positions:[]});
+    setModal("creditors")
+  };
+  var saveCred=()=>{
+    if(!editCred||!editCred.name.trim())return;
+    var positions=editCred.positions&&editCred.positions.length>0?editCred.positions:[];
+    var totalAmount,prSum,peSum;
+    if(positions.length>0){
+      totalAmount=positions.reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+      prSum=positions.filter(function(p){return p.type==="principal"&&!p.beyondRegistry}).reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+      peSum=positions.filter(function(p){return p.type!=="principal"&&!p.beyondRegistry}).reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+    }else{
+      prSum=parseFloat(editCred.principal)||0;
+      peSum=parseFloat(editCred.penalty)||0;
+      totalAmount=prSum+peSum;
+    }
+    var updated={...editCred,principal:prSum,penalty:peSum,amount:totalAmount,positions:positions};
+    setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,creditors:(d.creditors||[]).map(c=>c.id!==updated.id?c:updated)}));
+    setEditCred(null);
+    setModal("creditors")
+  };
   var updCred=(cid,f,v)=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,creditors:(d.creditors||[]).map(c=>c.id!==cid?c:{...c,[f]:v})}))};
   var markCredStatus=(cid,st)=>{setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var cr=(d.creditors||[]).find(c=>c.id===cid);var j={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:cr.name+": "+(st==="included"?"включено":"отказано")};return{...d,creditors:(d.creditors||[]).map(c=>c.id!==cid?c:{...c,status:st}),journal:[...d.journal,j]}}))};
   var markEfrsb=cid=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,creditors:(d.creditors||[]).map(c=>c.id!==cid?c:{...c,efrsb:true,efrsbDate:new Date().toISOString().split("T")[0]})}))};
@@ -560,33 +645,41 @@ function App(){
             }),
             React.createElement("div",{style:{height:1,background:bd,margin:"6px 0"}}),
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}},
-              React.createElement("div",{style:{fontSize:11,fontWeight:700}},"Итого"),
+              React.createElement("div",{style:{fontSize:11,fontWeight:700}},"Реестровые"),
               React.createElement("div",{style:{fontSize:11,fontWeight:600,textAlign:"right"}},credStats.sumPrincipal.toLocaleString("ru-RU")+" \u20bd"),
               React.createElement("div",{style:{fontSize:11,fontWeight:600,textAlign:"right",color:"#d97706"}},credStats.sumPenalty>0?credStats.sumPenalty.toLocaleString("ru-RU")+" \u20bd":"\u2014"),
               React.createElement("div",{style:{fontSize:12,fontWeight:700,textAlign:"right",color:ac}},credStats.sum.toLocaleString("ru-RU")+" \u20bd")
+            ),
+            credStats.sumBeyond>0&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,marginTop:3}},
+              React.createElement("div",{style:{fontSize:11,fontWeight:600,color:"#dc2626"}},"Заштат"),
+              React.createElement("div",null),
+              React.createElement("div",null),
+              React.createElement("div",{style:{fontSize:11,fontWeight:700,textAlign:"right",color:"#dc2626"}},credStats.sumBeyond.toLocaleString("ru-RU")+" \u20bd")
             )
           ),
           // FILTER BY QUEUE
           React.createElement("div",{style:{display:"flex",gap:3,marginBottom:8,flexWrap:"wrap"}},
             [["all","Все"],["1","1-я"],["2","2-я"],["3","3-я"],["pending","На рассм."],["rejected","Отказано"]].map(function(x){
               var cs=deb.creditors||[];
-              var cnt=x[0]==="all"?cs.length:x[0]==="pending"?cs.filter(function(c){return c.status==="pending"}).length:x[0]==="rejected"?cs.filter(function(c){return c.status==="rejected"}).length:cs.filter(function(c){return c.queue===x[0]}).length;
+              var cnt=x[0]==="all"?cs.length:x[0]==="pending"?cs.filter(function(c){return c.status==="pending"}).length:x[0]==="rejected"?cs.filter(function(c){return c.status==="rejected"}).length:cs.filter(function(c){return credQueues(c).indexOf(x[0])!==-1}).length;
               if(cnt===0&&x[0]!=="all")return null;
               return React.createElement("button",{key:x[0],onClick:function(){setCredFilter(x[0])},style:{padding:"4px 10px",borderRadius:8,fontSize:11,border:"none",background:credFilter===x[0]?ac:"#f3f4f6",color:credFilter===x[0]?"#fff":txm,cursor:"pointer",fontFamily:"inherit",fontWeight:credFilter===x[0]?600:400}},x[1]+(cnt>0?" ("+cnt+")":""))
             })
           ),
           // LIST
           React.createElement("div",{style:{maxHeight:320,overflowY:"auto"}},
-            (function(){var cs2=deb.creditors||[];if(credFilter==="1"||credFilter==="2"||credFilter==="3")cs2=cs2.filter(function(c){return c.queue===credFilter});else if(credFilter==="pending")cs2=cs2.filter(function(c){return c.status==="pending"});else if(credFilter==="rejected")cs2=cs2.filter(function(c){return c.status==="rejected"});return cs2.length===0?React.createElement("div",{style:{textAlign:"center",padding:20,color:txm,fontSize:12}},"Нет кредиторов"):cs2.map(function(c){
+            (function(){var cs2=deb.creditors||[];if(credFilter==="1"||credFilter==="2"||credFilter==="3")cs2=cs2.filter(function(c){return credQueues(c).indexOf(credFilter)!==-1});else if(credFilter==="pending")cs2=cs2.filter(function(c){return c.status==="pending"});else if(credFilter==="rejected")cs2=cs2.filter(function(c){return c.status==="rejected"});return cs2.length===0?React.createElement("div",{style:{textAlign:"center",padding:20,color:txm,fontSize:12}},"Нет кредиторов"):cs2.map(function(c){
               var bCol=c.status==="included"?"#16a34a":c.status==="rejected"?"#dc2626":"#d97706";
-              var total=(parseFloat(c.principal)||0)+(parseFloat(c.penalty)||0);
+              var total=credTotal(c);
               var objOv=c.objectionDeadline&&FU.dleft(c.objectionDeadline)<0&&!c.objectionFiled;
               return React.createElement("div",{key:c.id,style:{background:"#fff",border:"1px solid "+bd,borderRadius:10,padding:"10px 12px",marginBottom:6,borderLeft:"3px solid "+bCol,cursor:"pointer"},onClick:function(){setEditCred({...c});setModal("editcred")}},
                 React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:4}},
                   React.createElement("div",null,
                     React.createElement("div",{style:{fontSize:13,fontWeight:600}},c.name),
-                    React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4,marginTop:2}},
-                      React.createElement("span",{style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,background:c.queue==="1"?"#eef2ff":c.queue==="2"?"#fffbeb":"#f3f4f6",color:c.queue==="1"?"#6366f1":c.queue==="2"?"#d97706":"#374151"}},c.queue+"-я очередь"),
+                    React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4,marginTop:2,flexWrap:"wrap"}},
+                      credQueues(c).map(function(q){
+                        return React.createElement("span",{key:q,style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,background:q==="1"?"#eef2ff":q==="2"?"#fffbeb":"#f3f4f6",color:q==="1"?"#6366f1":q==="2"?"#d97706":"#374151"}},q+"-я очередь")
+                      }),
                       c.secured&&React.createElement("span",{style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,background:"#fef3c7",color:"#92400e"}},"Залог")
                     )
                   ),
@@ -595,11 +688,30 @@ function App(){
                     React.createElement("div",{style:{fontSize:12,fontWeight:700}},total>0?total.toLocaleString("ru-RU")+" \u20bd":"")
                   )
                 ),
-                // AMOUNT BREAKDOWN
-                total>0&&React.createElement("div",{style:{display:"flex",gap:12,fontSize:10,color:txm,marginBottom:4}},
-                  c.principal&&React.createElement("span",null,"Осн. долг: "+(parseFloat(c.principal)||0).toLocaleString("ru-RU")+" \u20bd"),
-                  c.penalty&&React.createElement("span",null,"Пени: "+(parseFloat(c.penalty)||0).toLocaleString("ru-RU")+" \u20bd")
-                ),
+                // POSITIONS BREAKDOWN
+                (function(){
+                  var poss=getPositions(c);
+                  if(poss.length===0)return null;
+                  if(poss.length===1){
+                    var p=poss[0];
+                    return React.createElement("div",{style:{display:"flex",gap:8,fontSize:10,color:txm,marginBottom:4}},
+                      React.createElement("span",null,posTypeLbl(p.type)+": "+(parseFloat(p.amount)||0).toLocaleString("ru-RU")+" \u20bd"+(p.beyondRegistry?" (заштат)":""))
+                    )
+                  }
+                  return React.createElement("div",{style:{marginBottom:4,padding:"4px 8px",background:"#f9fafb",borderRadius:6}},
+                    poss.map(function(p,idx){
+                      return React.createElement("div",{key:p.id||idx,style:{display:"flex",justifyContent:"space-between",fontSize:10,color:txm,padding:"1px 0"}},
+                        React.createElement("span",null,
+                          React.createElement("span",{style:{display:"inline-block",width:6,height:6,borderRadius:3,background:posTypeCol(p.type),marginRight:5,verticalAlign:"middle"}}),
+                          posTypeLbl(p.type),
+                          " · ",p.queue+"-я оч.",
+                          p.beyondRegistry?React.createElement("span",{style:{color:"#dc2626",marginLeft:4}},"заштат"):null
+                        ),
+                        React.createElement("span",{style:{fontWeight:600,color:tx}},(parseFloat(p.amount)||0).toLocaleString("ru-RU")+" \u20bd")
+                      )
+                    })
+                  )
+                })(),
                 React.createElement("div",{style:{display:"flex",gap:10,fontSize:10,color:txm,marginBottom:4,flexWrap:"wrap"}},
                   c.dateFiled&&React.createElement("span",null,"Подано: "+FU.fmt(c.dateFiled)),
                   c.courtDate&&React.createElement("span",null,"Суд: "+FU.fmt(c.courtDate)),
@@ -623,57 +735,119 @@ function App(){
         ),
 
         // EDIT CREDITOR
-        modal==="editcred"&&editCred&&React.createElement(React.Fragment,null,
-          React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},"Редактировать кредитора"),
-          React.createElement("div",{style:{marginBottom:10}},React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Кредитор"),React.createElement("input",{style:inp,value:editCred.name,onChange:function(e){setEditCred({...editCred,name:e.target.value})}})),
-          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Основной долг (\u20bd)"),React.createElement("input",{style:inp,type:"number",value:editCred.principal||"",onChange:function(e){setEditCred({...editCred,principal:e.target.value})}})),
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Пени / проценты (\u20bd)"),React.createElement("input",{style:inp,type:"number",value:editCred.penalty||"",onChange:function(e){setEditCred({...editCred,penalty:e.target.value})}}))
-          ),
-          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Очередь"),React.createElement("select",{style:{...inp,appearance:"auto"},value:editCred.queue,onChange:function(e){setEditCred({...editCred,queue:e.target.value})}},React.createElement("option",{value:"1"},"1 очередь"),React.createElement("option",{value:"2"},"2 очередь"),React.createElement("option",{value:"3"},"3 очередь"))),
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата подачи"),React.createElement("input",{type:"date",style:inp,value:editCred.dateFiled||"",onChange:function(e){setEditCred({...editCred,dateFiled:e.target.value})}}))
-          ),
-          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата заседания"),React.createElement("input",{type:"date",style:inp,value:editCred.courtDate||"",onChange:function(e){setEditCred({...editCred,courtDate:e.target.value})}})),
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Срок возражений"),React.createElement("input",{type:"date",style:inp,value:editCred.objectionDeadline||"",onChange:function(e){setEditCred({...editCred,objectionDeadline:e.target.value})}}))
-          ),
-          React.createElement("div",{style:{display:"flex",gap:8,marginBottom:10,alignItems:"center"}},
-            React.createElement("input",{type:"checkbox",id:"objFiled",checked:editCred.objectionFiled||false,onChange:function(e){setEditCred({...editCred,objectionFiled:e.target.checked})},style:{width:16,height:16}}),
-            React.createElement("label",{htmlFor:"objFiled",style:{fontSize:13,cursor:"pointer"}},"Возражения поданы"),
-            React.createElement("input",{type:"checkbox",id:"secured",checked:editCred.secured||false,onChange:function(e){setEditCred({...editCred,secured:e.target.checked})},style:{width:16,height:16,marginLeft:12}}),
-            React.createElement("label",{htmlFor:"secured",style:{fontSize:13,cursor:"pointer"}},"Залог")
-          ),
-          React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",gap:8}},
-            React.createElement("button",{onClick:function(){setEditCred(null);setModal("creditors")},style:btnS},"Отмена"),
-            React.createElement("button",{onClick:saveCred,style:btnP},"Сохранить")
+        modal==="editcred"&&editCred&&(function(){
+          // Initialize positions if missing
+          if(!editCred.positions||editCred.positions.length===0){
+            var initPos=getPositions(editCred);
+            if(initPos.length===0)initPos=[{id:FU.uid(),type:"principal",amount:0,queue:editCred.queue||"3",beyondRegistry:false}];
+            else initPos=initPos.map(function(p){return{...p,id:p.id&&p.id.indexOf("_l")!==0?p.id:FU.uid()}});
+            // Defer to avoid render loop
+            setTimeout(function(){setEditCred(function(prev){return prev?{...prev,positions:initPos}:prev})},0);
+          }
+          var poss=editCred.positions||[];
+          var totalSum=poss.reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+          var updPos=function(idx,field,val){var np=poss.map(function(p,i){return i===idx?{...p,[field]:val}:p});setEditCred({...editCred,positions:np})};
+          var addPos=function(){setEditCred({...editCred,positions:[...poss,{id:FU.uid(),type:"principal",amount:0,queue:editCred.queue||"3",beyondRegistry:false}]})};
+          var rmPos=function(idx){if(poss.length<=1)return;setEditCred({...editCred,positions:poss.filter(function(_,i){return i!==idx})})};
+          return React.createElement(React.Fragment,null,
+            React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},"Редактировать кредитора"),
+            React.createElement("div",{style:{marginBottom:10}},React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Кредитор"),React.createElement("input",{style:inp,value:editCred.name,onChange:function(e){setEditCred({...editCred,name:e.target.value})}})),
+            // POSITIONS EDITOR
+            React.createElement("div",{style:{marginBottom:10}},
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+                React.createElement("div",{style:{fontSize:12,fontWeight:600}},"Состав требования"),
+                React.createElement("button",{onClick:addPos,style:{...btnS,fontSize:11,padding:"2px 8px"}},"+ Позиция")
+              ),
+              poss.map(function(p,idx){
+                return React.createElement("div",{key:p.id||idx,style:{display:"grid",gridTemplateColumns:"1fr 1fr 90px 80px 24px",gap:4,marginBottom:4,padding:6,background:"#f9fafb",borderRadius:8,alignItems:"center"}},
+                  React.createElement("select",{style:{...inp,appearance:"auto",fontSize:11,padding:"4px 6px"},value:p.type,onChange:function(e){updPos(idx,"type",e.target.value)}},
+                    POS_TYPES.map(function(t){return React.createElement("option",{key:t.id,value:t.id},t.label)})
+                  ),
+                  React.createElement("input",{style:{...inp,fontSize:11,padding:"4px 6px"},type:"number",placeholder:"Сумма",value:p.amount||"",onChange:function(e){updPos(idx,"amount",e.target.value)}}),
+                  React.createElement("select",{style:{...inp,appearance:"auto",fontSize:11,padding:"4px 6px"},value:p.queue||"3",onChange:function(e){updPos(idx,"queue",e.target.value)}},
+                    React.createElement("option",{value:"1"},"1 оч."),
+                    React.createElement("option",{value:"2"},"2 оч."),
+                    React.createElement("option",{value:"3"},"3 оч.")
+                  ),
+                  React.createElement("label",{style:{fontSize:10,display:"flex",alignItems:"center",gap:3,cursor:"pointer"}},
+                    React.createElement("input",{type:"checkbox",checked:p.beyondRegistry||false,onChange:function(e){updPos(idx,"beyondRegistry",e.target.checked)},style:{width:13,height:13}}),
+                    "заштат"
+                  ),
+                  poss.length>1?React.createElement("button",{onClick:function(){rmPos(idx)},style:{background:"transparent",border:"none",cursor:"pointer",color:"#dc2626",fontSize:14,padding:0}},"\u00D7"):React.createElement("div",null)
+                )
+              }),
+              totalSum>0&&React.createElement("div",{style:{textAlign:"right",fontSize:12,fontWeight:700,color:ac,marginTop:6}},"Итого: "+totalSum.toLocaleString("ru-RU")+" \u20bd")
+            ),
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+              React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата подачи"),React.createElement("input",{type:"date",style:inp,value:editCred.dateFiled||"",onChange:function(e){setEditCred({...editCred,dateFiled:e.target.value})}})),
+              React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата заседания"),React.createElement("input",{type:"date",style:inp,value:editCred.courtDate||"",onChange:function(e){setEditCred({...editCred,courtDate:e.target.value})}}))
+            ),
+            React.createElement("div",{style:{marginBottom:10}},
+              React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Срок возражений"),React.createElement("input",{type:"date",style:inp,value:editCred.objectionDeadline||"",onChange:function(e){setEditCred({...editCred,objectionDeadline:e.target.value})}})
+            ),
+            React.createElement("div",{style:{display:"flex",gap:8,marginBottom:10,alignItems:"center"}},
+              React.createElement("input",{type:"checkbox",id:"objFiled",checked:editCred.objectionFiled||false,onChange:function(e){setEditCred({...editCred,objectionFiled:e.target.checked})},style:{width:16,height:16}}),
+              React.createElement("label",{htmlFor:"objFiled",style:{fontSize:13,cursor:"pointer"}},"Возражения поданы"),
+              React.createElement("input",{type:"checkbox",id:"secured",checked:editCred.secured||false,onChange:function(e){setEditCred({...editCred,secured:e.target.checked})},style:{width:16,height:16,marginLeft:12}}),
+              React.createElement("label",{htmlFor:"secured",style:{fontSize:13,cursor:"pointer"}},"Залог")
+            ),
+            React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",gap:8}},
+              React.createElement("button",{onClick:function(){setEditCred(null);setModal("creditors")},style:btnS},"Отмена"),
+              React.createElement("button",{onClick:saveCred,style:btnP},"Сохранить")
+            )
           )
-        ),
+        })(),
 
         // ADD CREDITOR
-        modal==="addcred"&&deb&&React.createElement(React.Fragment,null,
-          React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},"Новый кредитор"),
-          React.createElement("div",{style:{marginBottom:10}},React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Кредитор"),React.createElement("input",{style:inp,value:credForm.name,onChange:function(e){setCredForm({...credForm,name:e.target.value})},autoFocus:true})),
-          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Основной долг (\u20bd)"),React.createElement("input",{style:inp,type:"number",value:credForm.principal,onChange:function(e){setCredForm({...credForm,principal:e.target.value})}})),
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Пени / проценты (\u20bd)"),React.createElement("input",{style:inp,type:"number",value:credForm.penalty,onChange:function(e){setCredForm({...credForm,penalty:e.target.value})}}))
-          ),
-          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Очередь"),React.createElement("select",{style:{...inp,appearance:"auto"},value:credForm.queue,onChange:function(e){setCredForm({...credForm,queue:e.target.value})}},React.createElement("option",{value:"1"},"1 очередь"),React.createElement("option",{value:"2"},"2 очередь"),React.createElement("option",{value:"3"},"3 очередь"))),
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата подачи"),React.createElement("input",{type:"date",style:inp,value:credForm.dateFiled,onChange:function(e){setCredForm({...credForm,dateFiled:e.target.value})}}))
-          ),
-          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата заседания"),React.createElement("input",{type:"date",style:inp,value:credForm.courtDate,onChange:function(e){setCredForm({...credForm,courtDate:e.target.value})}})),
-            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Срок возражений"),React.createElement("input",{type:"date",style:inp,value:credForm.objectionDeadline,onChange:function(e){setCredForm({...credForm,objectionDeadline:e.target.value})}}))
-          ),
-          React.createElement("div",{style:{display:"flex",gap:8,marginBottom:10,alignItems:"center"}},
-            React.createElement("input",{type:"checkbox",id:"newObjFiled",checked:credForm.objectionFiled,onChange:function(e){setCredForm({...credForm,objectionFiled:e.target.checked})},style:{width:16,height:16}}),
-            React.createElement("label",{htmlFor:"newObjFiled",style:{fontSize:13,cursor:"pointer"}},"Возражения уже поданы"),
-            React.createElement("input",{type:"checkbox",id:"newSecured",checked:credForm.secured,onChange:function(e){setCredForm({...credForm,secured:e.target.checked})},style:{width:16,height:16,marginLeft:12}}),
-            React.createElement("label",{htmlFor:"newSecured",style:{fontSize:13,cursor:"pointer"}},"Залог")
-          ),
-          React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",gap:8}},React.createElement("button",{onClick:function(){setModal("creditors")},style:btnS},"Назад"),React.createElement("button",{onClick:addCred,style:btnP},"Добавить"))
-        ),
+        modal==="addcred"&&deb&&(function(){
+          var poss=credForm.positions&&credForm.positions.length>0?credForm.positions:[{id:"_new1",type:"principal",amount:"",queue:credForm.queue||"3",beyondRegistry:false}];
+          var totalSum=poss.reduce(function(s,p){return s+(parseFloat(p.amount)||0)},0);
+          var updPos=function(idx,field,val){var np=poss.map(function(p,i){return i===idx?{...p,[field]:val}:p});setCredForm({...credForm,positions:np})};
+          var addPos=function(){setCredForm({...credForm,positions:[...poss,{id:FU.uid(),type:"principal",amount:"",queue:credForm.queue||"3",beyondRegistry:false}]})};
+          var rmPos=function(idx){if(poss.length<=1)return;setCredForm({...credForm,positions:poss.filter(function(_,i){return i!==idx})})};
+          return React.createElement(React.Fragment,null,
+            React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},"Новый кредитор"),
+            React.createElement("div",{style:{marginBottom:10}},React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Кредитор"),React.createElement("input",{style:inp,value:credForm.name,onChange:function(e){setCredForm({...credForm,name:e.target.value})},autoFocus:true})),
+            // POSITIONS EDITOR
+            React.createElement("div",{style:{marginBottom:10}},
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+                React.createElement("div",{style:{fontSize:12,fontWeight:600}},"Состав требования"),
+                React.createElement("button",{onClick:addPos,style:{...btnS,fontSize:11,padding:"2px 8px"}},"+ Позиция")
+              ),
+              poss.map(function(p,idx){
+                return React.createElement("div",{key:p.id||idx,style:{display:"grid",gridTemplateColumns:"1fr 1fr 90px 80px 24px",gap:4,marginBottom:4,padding:6,background:"#f9fafb",borderRadius:8,alignItems:"center"}},
+                  React.createElement("select",{style:{...inp,appearance:"auto",fontSize:11,padding:"4px 6px"},value:p.type,onChange:function(e){updPos(idx,"type",e.target.value)}},
+                    POS_TYPES.map(function(t){return React.createElement("option",{key:t.id,value:t.id},t.label)})
+                  ),
+                  React.createElement("input",{style:{...inp,fontSize:11,padding:"4px 6px"},type:"number",placeholder:"Сумма",value:p.amount||"",onChange:function(e){updPos(idx,"amount",e.target.value)}}),
+                  React.createElement("select",{style:{...inp,appearance:"auto",fontSize:11,padding:"4px 6px"},value:p.queue||"3",onChange:function(e){updPos(idx,"queue",e.target.value)}},
+                    React.createElement("option",{value:"1"},"1 оч."),
+                    React.createElement("option",{value:"2"},"2 оч."),
+                    React.createElement("option",{value:"3"},"3 оч.")
+                  ),
+                  React.createElement("label",{style:{fontSize:10,display:"flex",alignItems:"center",gap:3,cursor:"pointer"}},
+                    React.createElement("input",{type:"checkbox",checked:p.beyondRegistry||false,onChange:function(e){updPos(idx,"beyondRegistry",e.target.checked)},style:{width:13,height:13}}),
+                    "заштат"
+                  ),
+                  poss.length>1?React.createElement("button",{onClick:function(){rmPos(idx)},style:{background:"transparent",border:"none",cursor:"pointer",color:"#dc2626",fontSize:14,padding:0}},"\u00D7"):React.createElement("div",null)
+                )
+              }),
+              totalSum>0&&React.createElement("div",{style:{textAlign:"right",fontSize:12,fontWeight:700,color:ac,marginTop:6}},"Итого: "+totalSum.toLocaleString("ru-RU")+" \u20bd")
+            ),
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+              React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата подачи"),React.createElement("input",{type:"date",style:inp,value:credForm.dateFiled,onChange:function(e){setCredForm({...credForm,dateFiled:e.target.value})}})),
+              React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата заседания"),React.createElement("input",{type:"date",style:inp,value:credForm.courtDate,onChange:function(e){setCredForm({...credForm,courtDate:e.target.value})}}))
+            ),
+            React.createElement("div",{style:{marginBottom:10}},React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Срок возражений"),React.createElement("input",{type:"date",style:inp,value:credForm.objectionDeadline,onChange:function(e){setCredForm({...credForm,objectionDeadline:e.target.value})}})),
+            React.createElement("div",{style:{display:"flex",gap:8,marginBottom:10,alignItems:"center"}},
+              React.createElement("input",{type:"checkbox",id:"newObjFiled",checked:credForm.objectionFiled,onChange:function(e){setCredForm({...credForm,objectionFiled:e.target.checked})},style:{width:16,height:16}}),
+              React.createElement("label",{htmlFor:"newObjFiled",style:{fontSize:13,cursor:"pointer"}},"Возражения уже поданы"),
+              React.createElement("input",{type:"checkbox",id:"newSecured",checked:credForm.secured,onChange:function(e){setCredForm({...credForm,secured:e.target.checked})},style:{width:16,height:16,marginLeft:12}}),
+              React.createElement("label",{htmlFor:"newSecured",style:{fontSize:13,cursor:"pointer"}},"Залог")
+            ),
+            React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",gap:8}},React.createElement("button",{onClick:function(){setModal("creditors")},style:btnS},"Назад"),React.createElement("button",{onClick:addCred,style:btnP},"Добавить"))
+          )
+        })(),
 
         // TASK DETAIL
         modal==="task"&&selTask&&React.createElement(React.Fragment,null,
