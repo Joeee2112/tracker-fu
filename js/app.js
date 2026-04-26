@@ -33,7 +33,7 @@ function App(){
   var[modal,setModal]=useState(null);
   var[selTask,setSelTask]=useState(null);
   var[q,setQ]=useState("");
-  var[form,setForm]=useState({fio:"",caseNum:"",date:"",notes:"",meetingFormat:"inperson"});
+  var[form,setForm]=useState({fio:"",caseNum:"",date:"",notes:"",meetingFormat:"inperson",procedure:"restructuring"});
   var[jt,setJt]=useState("");
   var[customForm,setCustomForm]=useState({title:"",desc:"",deadline:"",law:""});
   var[dashF,setDashF]=useState("all");
@@ -45,6 +45,8 @@ function App(){
   var[credForm,setCredForm]=useState({name:"",principal:"",penalty:"",queue:"3",secured:false,dateFiled:"",courtDate:"",objectionDeadline:"",objectionFiled:false});
   var[editCred,setEditCred]=useState(null);
   var[credFilter,setCredFilter]=useState("all");
+  var[cpForm,setCpForm]=useState({creditor:"",description:"",amount:"",queue:"4",dueDate:"",paidDate:"",paid:false});
+  var[editCp,setEditCp]=useState(null);
   var fileRef=useRef(null);
 
   var savedToCloud=useRef(false);
@@ -84,11 +86,11 @@ function App(){
 
   var bg=FU.bg,sf=FU.sf,bd=FU.bd,tx=FU.tx,txm=FU.txm,ac=FU.ac,inp=FU.inp,tg=FU.tg;
   var deb=useMemo(()=>debtors.find(d=>d.id===aid),[debtors,aid]);
-  // Виртуальные задачи из кредиторов (срок возражений + дата заседания)
-  var credTasks=useMemo(()=>{if(!deb)return[];var out=[];(deb.creditors||[]).forEach(function(c){if(c.objectionDeadline&&!c.objectionFiled&&c.status==="pending"){out.push({id:"cobj_"+c.id,phase:"registry",order:15.5,title:"\u2696 Возражения: "+c.name,desc:"\u0421\u0440\u043e\u043a \u043f\u043e\u0434\u0430\u0447\u0438 \u0432\u043e\u0437\u0440\u0430\u0436\u0435\u043d\u0438\u0439",law:"\u0441\u0442.100",deadline:c.objectionDeadline,done:false,doneDate:null,notes:"",priority:"high",links:[],_credId:c.id,_credType:"objection"})}if(c.courtDate&&c.status==="pending"){out.push({id:"ccrt_"+c.id,phase:"registry",order:15.6,title:"\u2696\uFE0F \u0417\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435: "+c.name,desc:"\u0421\u0443\u0434\u0435\u0431\u043d\u043e\u0435 \u0437\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435 \u043f\u043e \u0442\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044e",law:"\u0441\u0442.100",deadline:c.courtDate,done:false,doneDate:null,notes:"",priority:"high",links:[],_credId:c.id,_credType:"court"})}});return out},[deb]);
+  // Виртуальные задачи из кредиторов (срок возражений + дата заседания) + текущие платежи
+  var credTasks=useMemo(()=>{if(!deb)return[];var out=[];(deb.creditors||[]).forEach(function(c){if(c.objectionDeadline&&!c.objectionFiled&&c.status==="pending"){out.push({id:"cobj_"+c.id,phase:"registry",order:15.5,title:"\u2696 Возражения: "+c.name,desc:"\u0421\u0440\u043e\u043a \u043f\u043e\u0434\u0430\u0447\u0438 \u0432\u043e\u0437\u0440\u0430\u0436\u0435\u043d\u0438\u0439",law:"\u0441\u0442.100",deadline:c.objectionDeadline,done:false,doneDate:null,notes:"",priority:"high",links:[],_credId:c.id,_credType:"objection"})}if(c.courtDate&&c.status==="pending"){out.push({id:"ccrt_"+c.id,phase:"registry",order:15.6,title:"\u2696\uFE0F \u0417\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435: "+c.name,desc:"\u0421\u0443\u0434\u0435\u0431\u043d\u043e\u0435 \u0437\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435 \u043f\u043e \u0442\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044e",law:"\u0441\u0442.100",deadline:c.courtDate,done:false,doneDate:null,notes:"",priority:"high",links:[],_credId:c.id,_credType:"court"})}});(deb.currentPayments||[]).forEach(function(c){if(c.dueDate&&!c.paid){out.push({id:"cp_"+c.id,phase:"execution",order:99,title:"\u{1F4B0} "+c.description,desc:"\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043f\u043b\u0430\u0442\u0451\u0436 ("+c.queue+" \u043e\u0447\u0435\u0440\u0435\u0434\u044c)"+(c.amount?": "+(parseFloat(c.amount)||0).toLocaleString("ru-RU")+" \u20bd":""),law:"\u0441\u0442.5, 134",deadline:c.dueDate,done:false,doneDate:null,notes:"",priority:"high",links:[],_cpId:c.id,_credType:"current"})}});return out},[deb]);
   var allTasks=useMemo(()=>deb?[...deb.tasks,...credTasks]:[],[deb,credTasks]);
   var stats=useMemo(()=>{if(!deb)return{t:0,dn:0,ov:0,sn:0,pct:0};var ts=allTasks,dn=ts.filter(x=>x.done).length;return{t:ts.length,dn,ov:ts.filter(x=>!x.done&&x.deadline&&FU.dleft(x.deadline)<0).length,sn:ts.filter(x=>!x.done&&x.deadline&&FU.dleft(x.deadline)>=0&&FU.dleft(x.deadline)<=7).length,pct:Math.round(dn/ts.length*100)}},[deb,allTasks]);
-  var dashD=useMemo(()=>{var all=[];debtors.forEach(d=>{var ct=[];(d.creditors||[]).forEach(function(c){if(c.objectionDeadline&&!c.objectionFiled&&c.status==="pending")ct.push({id:"cobj_"+c.id,phase:"registry",title:"\u2696 Возражения: "+c.name,deadline:c.objectionDeadline,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum});if(c.courtDate&&c.status==="pending")ct.push({id:"ccrt_"+c.id,phase:"registry",title:"\u2696\uFE0F \u0417\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435: "+c.name,deadline:c.courtDate,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum})});d.tasks.forEach(t=>{if(!t.done)all.push({...t,did:d.id,dfio:d.fio,dcn:d.caseNum})});ct.forEach(t=>all.push(t))});var ov=all.filter(t=>t.deadline&&FU.dleft(t.deadline)<0).sort((a,b)=>FU.dleft(a.deadline)-FU.dleft(b.deadline));var wk=all.filter(t=>t.deadline&&FU.dleft(t.deadline)>=0&&FU.dleft(t.deadline)<=7).sort((a,b)=>FU.dleft(a.deadline)-FU.dleft(b.deadline));var td=debtors.reduce((s,d)=>s+d.tasks.filter(t=>t.done).length,0);return{ov,wk,td}},[debtors]);
+  var dashD=useMemo(()=>{var all=[];debtors.forEach(d=>{var ct=[];(d.creditors||[]).forEach(function(c){if(c.objectionDeadline&&!c.objectionFiled&&c.status==="pending")ct.push({id:"cobj_"+c.id,phase:"registry",title:"\u2696 Возражения: "+c.name,deadline:c.objectionDeadline,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum});if(c.courtDate&&c.status==="pending")ct.push({id:"ccrt_"+c.id,phase:"registry",title:"\u2696\uFE0F Заседание: "+c.name,deadline:c.courtDate,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum})});(d.currentPayments||[]).forEach(function(c){if(c.dueDate&&!c.paid)ct.push({id:"cp_"+c.id,phase:"execution",title:"\u{1F4B0} "+c.description,deadline:c.dueDate,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum})});d.tasks.forEach(t=>{if(!t.done)all.push({...t,did:d.id,dfio:d.fio,dcn:d.caseNum})});ct.forEach(t=>all.push(t))});var ov=all.filter(t=>t.deadline&&FU.dleft(t.deadline)<0).sort((a,b)=>FU.dleft(a.deadline)-FU.dleft(b.deadline));var wk=all.filter(t=>t.deadline&&FU.dleft(t.deadline)>=0&&FU.dleft(t.deadline)<=7).sort((a,b)=>FU.dleft(a.deadline)-FU.dleft(b.deadline));var td=debtors.reduce((s,d)=>s+d.tasks.filter(t=>t.done).length,0);return{ov,wk,td}},[debtors]);
   var filtered=useMemo(()=>{if(!deb)return[];var ts=allTasks;if(ph!=="all")ts=ts.filter(t=>t.phase===ph);if(q.trim()){var s=q.toLowerCase();ts=ts.filter(t=>t.title.toLowerCase().includes(s)||t.desc.toLowerCase().includes(s)||(t.law||"").toLowerCase().includes(s))}return ts.sort((a,b)=>{if(a.done!==b.done)return a.done?1:-1;var da=a.deadline?new Date(a.deadline).getTime():Infinity;var db2=b.deadline?new Date(b.deadline).getTime():Infinity;if(da!==db2)return da-db2;return a.order-b.order})},[deb,allTasks,ph,q]);
   var phC=useMemo(()=>{if(!deb)return{};var r={};FU.PHASES.forEach(p=>{var f=p.id==="all"?allTasks:allTasks.filter(t=>t.phase===p.id);r[p.id]={t:f.length,d:f.filter(t=>t.done).length}});return r},[deb,allTasks]);
   var risk=useMemo(()=>{if(!deb)return{l:"—",c:"#64748b"};return stats.ov>3?{l:"Критический",c:"#dc2626"}:stats.ov>0?{l:"Просрочки",c:"#d97706"}:{l:"В норме",c:"#16a34a"}},[deb,stats]);
@@ -128,7 +130,18 @@ function App(){
   var dashReqOv=useMemo(()=>{var all=[];debtors.forEach(d=>{(d.requests||[]).forEach(r=>{if(r.status==="waiting"&&FU.dleft(r.deadline)<0)all.push({...r,dfio:d.fio})})});return all},[debtors]);
 
   // HANDLERS
-  var addDeb=()=>{if(!form.fio.trim()||!form.date)return;var kd=FU.autoKd({kd_procedure:form.date});var d={id:FU.uid(),fio:form.fio,caseNum:form.caseNum,notes:form.notes,meetingFormat:form.meetingFormat,keyDates:kd,tasks:FU.mkTasks(kd,form.meetingFormat),journal:[{id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Создан. Реструктуризация с "+FU.fmt(form.date)+"."}],requests:[],creditors:[]};setDebtors(p=>[...p,d]);setAid(d.id);setTab("home");setModal(null);setForm({fio:"",caseNum:"",date:"",notes:"",meetingFormat:"inperson"})};
+  var addDeb=()=>{
+    if(!form.fio.trim()||!form.date)return;
+    var kd=FU.autoKd({kd_procedure:form.date});
+    var procedure=form.procedure||"restructuring";
+    var procLabel=(FU.PROCEDURES.find(function(p){return p.id===procedure})||{label:"Реструктуризация"}).label;
+    var d={id:FU.uid(),fio:form.fio,caseNum:form.caseNum,notes:form.notes,meetingFormat:form.meetingFormat,procedure:procedure,keyDates:kd,tasks:FU.mkTasks(kd,form.meetingFormat,procedure),journal:[{id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Создан. "+procLabel+" с "+FU.fmt(form.date)+"."}],requests:[],creditors:[],currentPayments:[]};
+    setDebtors(p=>[...p,d]);
+    setAid(d.id);
+    setTab("home");
+    setModal(null);
+    setForm({fio:"",caseNum:"",date:"",notes:"",meetingFormat:"inperson",procedure:"restructuring"})
+  };
   var delDeb=id=>{if(!confirm("Удалить должника?"))return;setDebtors(p=>p.filter(d=>d.id!==id));if(aid===id)setAid(debtors.find(d=>d.id!==id)?.id||null)};
   var tog=tid=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,tasks:d.tasks.map(t=>t.id!==tid?t:{...t,done:!t.done,doneDate:!t.done?new Date().toISOString().split("T")[0]:null})}))};
   var togX=(did,tid)=>{setDebtors(p=>p.map(d=>d.id!==did?d:{...d,tasks:d.tasks.map(t=>t.id!==tid?t:{...t,done:!t.done,doneDate:!t.done?new Date().toISOString().split("T")[0]:null})}))};
@@ -192,6 +205,32 @@ function App(){
   var markCredStatus=(cid,st)=>{setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var cr=(d.creditors||[]).find(c=>c.id===cid);var j={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:cr.name+": "+(st==="included"?"включено":"отказано")};return{...d,creditors:(d.creditors||[]).map(c=>c.id!==cid?c:{...c,status:st}),journal:[...d.journal,j]}}))};
   var markEfrsb=cid=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,creditors:(d.creditors||[]).map(c=>c.id!==cid?c:{...c,efrsb:true,efrsbDate:new Date().toISOString().split("T")[0]})}))};
 
+  // ТЕКУЩИЕ ПЛАТЕЖИ (ст. 5, 134)
+  var addCp=function(){
+    if(!cpForm.description.trim())return;
+    var ncp={id:FU.uid(),creditor:cpForm.creditor,description:cpForm.description,amount:parseFloat(cpForm.amount)||0,queue:cpForm.queue||"4",dueDate:cpForm.dueDate,paidDate:cpForm.paidDate,paid:cpForm.paid};
+    setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var j={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Текущий платёж: "+ncp.description+(ncp.amount?" "+ncp.amount.toLocaleString("ru-RU")+" ₽":"")};return{...d,currentPayments:[...(d.currentPayments||[]),ncp],journal:[...d.journal,j]}}));
+    setCpForm({creditor:"",description:"",amount:"",queue:"4",dueDate:"",paidDate:"",paid:false});
+    setModal("currentPayments")
+  };
+  var saveCp=function(){
+    if(!editCp||!editCp.description.trim())return;
+    setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,currentPayments:(d.currentPayments||[]).map(c=>c.id!==editCp.id?c:{...editCp,amount:parseFloat(editCp.amount)||0})}));
+    setEditCp(null);
+    setModal("currentPayments")
+  };
+  var togCpPaid=function(cid){setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,currentPayments:(d.currentPayments||[]).map(c=>c.id!==cid?c:{...c,paid:!c.paid,paidDate:!c.paid?new Date().toISOString().split("T")[0]:""})}))};
+  var delCp=function(cid){if(!confirm("Удалить платёж?"))return;setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,currentPayments:(d.currentPayments||[]).filter(c=>c.id!==cid)}))};
+
+  // ПЕРЕХОД ПРОЦЕДУРЫ
+  var doSwitchProc=function(newProc){
+    if(!deb)return;
+    if(newProc===deb.procedure){setModal(null);return}
+    if(!confirm("Перейти из «"+(FU.PROCEDURES.find(p=>p.id===(deb.procedure||"restructuring"))||{}).label+"» в «"+(FU.PROCEDURES.find(p=>p.id===newProc)||{}).label+"»?\n\nВыполненные задачи сохранятся в архиве. Новые задачи и сроки будут пересчитаны от текущей даты."))return;
+    setDebtors(p=>p.map(d=>d.id!==aid?d:FU.switchProcedure(d,newProc,{kd_procedure:FU.today()})));
+    setModal(null)
+  };
+
   var debtorColor=function(i){return FU.CARD_COLORS[i%FU.CARD_COLORS.length]};
   var debtorStatus=function(d){var ov=d.tasks.filter(function(t){return!t.done&&t.deadline&&FU.dleft(t.deadline)<0}).length;return ov>0?"#dc2626":d.tasks.filter(function(t){return!t.done&&t.deadline&&FU.dleft(t.deadline)>=0&&FU.dleft(t.deadline)<=7}).length>0?"#d97706":"#16a34a"};
   var nearestTask=function(d){return d.tasks.filter(function(t){return!t.done&&t.deadline}).sort(function(a,b){return(FU.dleft(a.deadline)<0?999:FU.dleft(a.deadline))-(FU.dleft(b.deadline)<0?999:FU.dleft(b.deadline))})[0]};
@@ -233,7 +272,7 @@ function App(){
               React.createElement("button",{onClick:function(e){e.stopPropagation();delDeb(d.id)},style:{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:"50%",width:24,height:24,color:"#fff",cursor:"pointer",fontSize:11}},"\u2715")
             ),
             React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:2}},d.fio),
-            React.createElement("div",{style:{fontSize:11,opacity:0.85,marginBottom:10}},d.caseNum+" \xb7 Реструктуризация"),
+            React.createElement("div",{style:{fontSize:11,opacity:0.85,marginBottom:10}},d.caseNum+" \xb7 "+((FU.PROCEDURES.find(function(p){return p.id===(d.procedure||"restructuring")})||FU.PROCEDURES[0]).short)),
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
               React.createElement("div",{style:{display:"flex",gap:4}},
                 ovC>0&&React.createElement("span",{style:{background:"rgba(255,255,255,0.25)",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700}},"-"+FU.dleft(d.tasks.filter(function(t){return!t.done&&t.deadline&&FU.dleft(t.deadline)<0}).sort(function(a,b){return FU.dleft(a.deadline)-FU.dleft(b.deadline)})[0]?.deadline)+" дн."),
@@ -262,8 +301,9 @@ function App(){
         React.createElement("button",{onClick:function(){setAid(null)},style:{background:"#f3f4f6",border:"none",borderRadius:10,padding:"6px 12px",cursor:"pointer",fontSize:14,fontFamily:"inherit"}},"\u2190"),
         React.createElement("div",{style:{flex:1}},
           React.createElement("div",{style:{fontSize:16,fontWeight:700}},deb.fio),
-          React.createElement("div",{style:{display:"flex",gap:6,alignItems:"center",marginTop:2}},
+          React.createElement("div",{style:{display:"flex",gap:6,alignItems:"center",marginTop:2,flexWrap:"wrap"}},
             deb.caseNum&&React.createElement("a",{href:"https://kad.arbitr.ru/Card?number="+encodeURIComponent(deb.caseNum),target:"_blank",rel:"noopener noreferrer",style:{fontSize:11,color:ac,textDecoration:"none",fontWeight:600}},deb.caseNum),
+            (function(){var p=FU.PROCEDURES.find(function(x){return x.id===(deb.procedure||"restructuring")})||FU.PROCEDURES[0];return React.createElement("span",{style:{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:600,color:p.color,background:p.color+"15"}},p.short)})(),
             React.createElement("span",{style:{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:600,color:risk.c,background:risk.c+"15"}},risk.l)
           )
         )
@@ -279,6 +319,8 @@ function App(){
         React.createElement("button",{onClick:function(){setModal("journal")},style:{...btnS,fontSize:11,padding:"6px 12px",borderRadius:10}},"\ud83d\udcd3 ("+(deb.journal?.length||0)+")"),
         React.createElement("button",{onClick:function(){setModal("requests")},style:{...btnS,fontSize:11,padding:"6px 12px",borderRadius:10,borderColor:reqStats.ov>0?"#dc2626":bd,color:reqStats.ov>0?"#dc2626":tx}},"\ud83d\udce8 ("+reqStats.t+")"),
         React.createElement("button",{onClick:function(){setModal("creditors")},style:{...btnS,fontSize:11,padding:"6px 12px",borderRadius:10}},"\ud83d\udccb ("+credStats.t+")"),
+        React.createElement("button",{onClick:function(){setModal("currentPayments")},style:{...btnS,fontSize:11,padding:"6px 12px",borderRadius:10}},"\ud83d\udcb0 Текущие ("+((deb.currentPayments||[]).length)+")"),
+        React.createElement("button",{onClick:function(){setModal("switchProc")},style:{...btnS,fontSize:11,padding:"6px 12px",borderRadius:10}},"\ud83d\udd04 Процедура"),
         React.createElement("button",{onClick:function(){setModal("custom")},style:{...btnP,fontSize:11,padding:"6px 12px",borderRadius:10}},"+  Задача")
       ),
       // CONFLICTS
@@ -295,8 +337,8 @@ function App(){
         filtered.map(function(t){
           var isN=t.id_key==="meeting_notify",isC=t.phase==="custom";
           return React.createElement("div",{key:t.id,style:{background:"#fff",border:"1px solid "+bd,borderRadius:12,padding:"12px 14px",marginBottom:6,display:"grid",gridTemplateColumns:"24px 1fr auto",gap:10,alignItems:"start",opacity:t.done?0.45:1}},
-            React.createElement("div",{onClick:function(){if(t._credType==="objection"){updCred(t._credId,"objectionFiled",true)}else if(!t._credType){tog(t.id)}},style:{width:20,height:20,borderRadius:"50%",border:"2px solid "+(t.done?"#16a34a":"#d1d5db"),display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",background:t.done?"#16a34a":"transparent",fontSize:11,color:"#fff",fontWeight:700,marginTop:2}},t.done&&"\u2713"),
-            React.createElement("div",{onClick:function(){if(t._credType){setModal("creditors")}else{setSelTask(t);setModal("task")}},style:{cursor:"pointer"}},
+            React.createElement("div",{onClick:function(){if(t._credType==="objection"){updCred(t._credId,"objectionFiled",true)}else if(t._credType==="current"){togCpPaid(t._cpId)}else if(!t._credType){tog(t.id)}},style:{width:20,height:20,borderRadius:"50%",border:"2px solid "+(t.done?"#16a34a":"#d1d5db"),display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",background:t.done?"#16a34a":"transparent",fontSize:11,color:"#fff",fontWeight:700,marginTop:2}},t.done&&"\u2713"),
+            React.createElement("div",{onClick:function(){if(t._credType==="current"){setModal("currentPayments")}else if(t._credType){setModal("creditors")}else{setSelTask(t);setModal("task")}},style:{cursor:"pointer"}},
               React.createElement("div",{style:{fontWeight:600,fontSize:13,textDecoration:t.done?"line-through":"none",marginBottom:2,color:tx}},t.title,isC&&React.createElement("span",{style:{...tg("#f3e8ff","#7c3aed"),marginLeft:4}},"свои")),
               React.createElement("div",{style:{fontSize:11,color:txm,lineHeight:1.5}},t.desc),
               React.createElement("div",null,
@@ -407,7 +449,7 @@ function App(){
         React.createElement("div",{style:{width:34,height:34,borderRadius:10,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,color:"#fff"}},"ФУ"),
         React.createElement("div",{style:{fontSize:16,fontWeight:800,letterSpacing:-0.5}},"Трекер ФУ")
       ),
-      React.createElement("div",{style:{fontSize:11,color:txm,fontWeight:500}},"127-ФЗ \xb7 Реструктуризация")
+      React.createElement("div",{style:{fontSize:11,color:txm,fontWeight:500}},"127-ФЗ \xb7 "+(deb?(FU.PROCEDURES.find(function(p){return p.id===(deb.procedure||"restructuring")})||FU.PROCEDURES[0]).label:"Управление процедурами"))
     ),
 
     // CONTENT
@@ -434,6 +476,14 @@ function App(){
           React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
             React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Номер дела"),React.createElement("input",{style:inp,placeholder:"А54-921/2025",value:form.caseNum,onChange:function(e){setForm({...form,caseNum:e.target.value})}})),
             React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата введения"),React.createElement("input",{type:"date",style:inp,value:form.date,onChange:function(e){setForm({...form,date:e.target.value})}}))
+          ),
+          React.createElement("div",{style:{marginBottom:12}},
+            React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:6}},"Тип процедуры"),
+            React.createElement("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+              FU.PROCEDURES.map(function(p){
+                return React.createElement("button",{key:p.id,onClick:function(){setForm({...form,procedure:p.id})},style:{flex:"1 1 30%",minWidth:100,padding:"8px",borderRadius:10,border:"2px solid "+(form.procedure===p.id?p.color:bd),background:form.procedure===p.id?p.color+"15":"#fff",color:form.procedure===p.id?p.color:tx,fontSize:12,fontWeight:form.procedure===p.id?700:400,cursor:"pointer",fontFamily:"inherit"}},p.short)
+              })
+            )
           ),
           React.createElement("div",{style:{marginBottom:12}},
             React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:6}},"Формат собрания"),
@@ -848,6 +898,141 @@ function App(){
             React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",gap:8}},React.createElement("button",{onClick:function(){setModal("creditors")},style:btnS},"Назад"),React.createElement("button",{onClick:addCred,style:btnP},"Добавить"))
           )
         })(),
+
+        // CURRENT PAYMENTS (ст. 5, 134)
+        modal==="currentPayments"&&deb&&(function(){
+          var cps=deb.currentPayments||[];
+          var totalUnpaid=cps.filter(c=>!c.paid).reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+          var totalPaid=cps.filter(c=>c.paid).reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+          var byQ={};FU.CURRENT_QUEUES.forEach(q=>{byQ[q.id]={count:0,unpaid:0,paid:0}});
+          cps.forEach(c=>{var q=c.queue||"4";if(!byQ[q])byQ[q]={count:0,unpaid:0,paid:0};byQ[q].count++;if(c.paid)byQ[q].paid+=parseFloat(c.amount)||0;else byQ[q].unpaid+=parseFloat(c.amount)||0});
+          return React.createElement(React.Fragment,null,
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+              React.createElement("div",null,
+                React.createElement("div",{style:{fontSize:16,fontWeight:700}},"Текущие платежи"),
+                React.createElement("div",{style:{fontSize:10,color:txm}},"ст. 5, 134 \xb7 удовлетворяются вне очереди")
+              ),
+              React.createElement("button",{onClick:function(){setModal("addCp")},style:{...btnP,fontSize:12}},"+  Платёж")
+            ),
+            // Stats
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}},
+              React.createElement("div",{style:{background:"#fef2f2",borderRadius:10,padding:8,textAlign:"center"}},
+                React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#dc2626"}},totalUnpaid.toLocaleString("ru-RU")+" \u20bd"),
+                React.createElement("div",{style:{fontSize:9,color:"#dc2626",opacity:0.7}},"К оплате")
+              ),
+              React.createElement("div",{style:{background:"#f0fdf4",borderRadius:10,padding:8,textAlign:"center"}},
+                React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#16a34a"}},totalPaid.toLocaleString("ru-RU")+" \u20bd"),
+                React.createElement("div",{style:{fontSize:9,color:"#16a34a",opacity:0.7}},"Оплачено")
+              ),
+              React.createElement("div",{style:{background:"#eef2ff",borderRadius:10,padding:8,textAlign:"center"}},
+                React.createElement("div",{style:{fontSize:14,fontWeight:700,color:ac}},cps.length),
+                React.createElement("div",{style:{fontSize:9,color:ac,opacity:0.7}},"Всего")
+              )
+            ),
+            // By queue
+            cps.length>0&&React.createElement("div",{style:{padding:"8px 12px",background:"#f9fafb",borderRadius:10,marginBottom:8,fontSize:11}},
+              React.createElement("div",{style:{fontWeight:700,marginBottom:6,fontSize:12}},"По очерёдности (ст. 134 п. 2)"),
+              FU.CURRENT_QUEUES.map(function(q){
+                var d=byQ[q.id];if(!d||d.count===0)return null;
+                return React.createElement("div",{key:q.id,style:{display:"flex",alignItems:"center",gap:6,marginBottom:3,fontSize:10}},
+                  React.createElement("div",{style:{width:8,height:8,borderRadius:2,background:q.color}}),
+                  React.createElement("span",{style:{flex:1,color:q.color,fontWeight:600}},q.label),
+                  d.unpaid>0&&React.createElement("span",{style:{color:"#dc2626"}},"−"+d.unpaid.toLocaleString("ru-RU")+" ₽"),
+                  d.paid>0&&React.createElement("span",{style:{color:"#16a34a",marginLeft:6}},"✓"+d.paid.toLocaleString("ru-RU")+" ₽")
+                )
+              })
+            ),
+            // List
+            React.createElement("div",{style:{maxHeight:340,overflowY:"auto"}},
+              cps.length===0?React.createElement("div",{style:{textAlign:"center",padding:20,color:txm,fontSize:12}},"Нет текущих платежей"):
+              cps.slice().sort((a,b)=>(a.paid?1:0)-(b.paid?1:0)||(a.dueDate||"").localeCompare(b.dueDate||"")).map(function(c){
+                var qInfo=FU.CURRENT_QUEUES.find(q=>q.id===c.queue)||FU.CURRENT_QUEUES[3];
+                var ov=c.dueDate&&!c.paid&&FU.dleft(c.dueDate)<0;
+                return React.createElement("div",{key:c.id,style:{padding:10,marginBottom:6,background:c.paid?"#f0fdf4":ov?"#fef2f2":"#fff",borderLeft:"3px solid "+(c.paid?"#16a34a":qInfo.color),borderRadius:8,border:"1px solid "+bd,cursor:"pointer"},onClick:function(){setEditCp({...c});setModal("editCp")}},
+                  React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:3}},
+                    React.createElement("div",{style:{flex:1}},
+                      React.createElement("div",{style:{fontSize:13,fontWeight:600}},c.description),
+                      c.creditor&&React.createElement("div",{style:{fontSize:10,color:txm}},c.creditor)
+                    ),
+                    React.createElement("div",{style:{fontSize:13,fontWeight:700,textAlign:"right",color:c.paid?"#16a34a":qInfo.color}},(parseFloat(c.amount)||0).toLocaleString("ru-RU")+" \u20bd")
+                  ),
+                  React.createElement("div",{style:{display:"flex",gap:6,fontSize:10,color:txm,flexWrap:"wrap"}},
+                    React.createElement("span",{style:{padding:"1px 6px",borderRadius:4,background:qInfo.color+"15",color:qInfo.color,fontWeight:600}},c.queue+" оч."),
+                    c.dueDate&&React.createElement("span",{style:{color:ov?"#dc2626":txm}},"Срок: "+FU.fmt(c.dueDate)+(ov?" (просрочен)":"")),
+                    c.paid&&c.paidDate&&React.createElement("span",{style:{color:"#16a34a"}},"\u2713 Оплачен "+FU.fmt(c.paidDate))
+                  ),
+                  React.createElement("div",{style:{display:"flex",gap:4,marginTop:6},onClick:function(e){e.stopPropagation()}},
+                    React.createElement("button",{onClick:function(){togCpPaid(c.id)},style:{...btnS,fontSize:10,padding:"3px 8px",borderRadius:6,borderColor:c.paid?"#fde68a":"#bbf7d0",color:c.paid?"#d97706":"#16a34a"}},c.paid?"\u21a9 Не оплачен":"\u2713 Оплачен"),
+                    React.createElement("button",{onClick:function(){delCp(c.id)},style:{...btnS,fontSize:10,padding:"3px 8px",borderRadius:6,borderColor:"#fecaca",color:"#dc2626"}},"\u2715")
+                  )
+                )
+              })
+            ),
+            React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginTop:8}},React.createElement("button",{onClick:function(){setModal(null)},style:btnP},"Закрыть"))
+          )
+        })(),
+
+        // ADD CURRENT PAYMENT
+        modal==="addCp"&&deb&&React.createElement(React.Fragment,null,
+          React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},"Новый текущий платёж"),
+          React.createElement("div",{style:{marginBottom:10}},React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Описание"),React.createElement("input",{style:inp,placeholder:"Коммунальные платежи, госпошлина...",value:cpForm.description,onChange:function(e){setCpForm({...cpForm,description:e.target.value})},autoFocus:true})),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Получатель"),React.createElement("input",{style:inp,placeholder:"УК, ФНС...",value:cpForm.creditor,onChange:function(e){setCpForm({...cpForm,creditor:e.target.value})}})),
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Сумма (\u20bd)"),React.createElement("input",{style:inp,type:"number",value:cpForm.amount,onChange:function(e){setCpForm({...cpForm,amount:e.target.value})}}))
+          ),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Очередь"),React.createElement("select",{style:{...inp,appearance:"auto"},value:cpForm.queue,onChange:function(e){setCpForm({...cpForm,queue:e.target.value})}},FU.CURRENT_QUEUES.map(q=>React.createElement("option",{key:q.id,value:q.id},q.id+" — "+q.label.split("(")[1].replace(")",""))))),
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Срок оплаты"),React.createElement("input",{type:"date",style:inp,value:cpForm.dueDate,onChange:function(e){setCpForm({...cpForm,dueDate:e.target.value})}}))
+          ),
+          React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",gap:8}},
+            React.createElement("button",{onClick:function(){setModal("currentPayments")},style:btnS},"Назад"),
+            React.createElement("button",{onClick:addCp,style:btnP},"Добавить")
+          )
+        ),
+
+        // EDIT CURRENT PAYMENT
+        modal==="editCp"&&editCp&&React.createElement(React.Fragment,null,
+          React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},"Редактировать платёж"),
+          React.createElement("div",{style:{marginBottom:10}},React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Описание"),React.createElement("input",{style:inp,value:editCp.description,onChange:function(e){setEditCp({...editCp,description:e.target.value})}})),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Получатель"),React.createElement("input",{style:inp,value:editCp.creditor||"",onChange:function(e){setEditCp({...editCp,creditor:e.target.value})}})),
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Сумма (\u20bd)"),React.createElement("input",{style:inp,type:"number",value:editCp.amount||"",onChange:function(e){setEditCp({...editCp,amount:e.target.value})}}))
+          ),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Очередь"),React.createElement("select",{style:{...inp,appearance:"auto"},value:editCp.queue,onChange:function(e){setEditCp({...editCp,queue:e.target.value})}},FU.CURRENT_QUEUES.map(q=>React.createElement("option",{key:q.id,value:q.id},q.id+" — "+q.label.split("(")[1].replace(")",""))))),
+            React.createElement("div",null,React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Срок оплаты"),React.createElement("input",{type:"date",style:inp,value:editCp.dueDate||"",onChange:function(e){setEditCp({...editCp,dueDate:e.target.value})}}))
+          ),
+          editCp.paid&&React.createElement("div",{style:{marginBottom:10}},
+            React.createElement("div",{style:{fontSize:12,color:txm,marginBottom:4}},"Дата оплаты"),
+            React.createElement("input",{type:"date",style:inp,value:editCp.paidDate||"",onChange:function(e){setEditCp({...editCp,paidDate:e.target.value})}})
+          ),
+          React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",gap:8}},
+            React.createElement("button",{onClick:function(){setEditCp(null);setModal("currentPayments")},style:btnS},"Отмена"),
+            React.createElement("button",{onClick:saveCp,style:btnP},"Сохранить")
+          )
+        ),
+
+        // SWITCH PROCEDURE
+        modal==="switchProc"&&deb&&React.createElement(React.Fragment,null,
+          React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},"Сменить процедуру"),
+          React.createElement("div",{style:{padding:10,background:"#fffbeb",borderRadius:10,marginBottom:14,fontSize:12,color:"#92400e"}},
+            "Текущая процедура: ",
+            React.createElement("strong",null,(FU.PROCEDURES.find(p=>p.id===(deb.procedure||"restructuring"))||{}).label),
+            React.createElement("div",{style:{marginTop:6,fontSize:11}},"При смене: выполненные задачи сохранятся, появятся новые задачи и сроки от текущей даты. Кредиторы и текущие платежи останутся.")
+          ),
+          React.createElement("div",{style:{display:"grid",gap:8,marginBottom:14}},
+            FU.PROCEDURES.filter(p=>p.id!==(deb.procedure||"restructuring")).map(function(p){
+              return React.createElement("button",{key:p.id,onClick:function(){doSwitchProc(p.id)},style:{padding:"12px 14px",borderRadius:10,border:"2px solid "+p.color+"40",background:p.color+"08",color:p.color,fontFamily:"inherit",cursor:"pointer",textAlign:"left"}},
+                React.createElement("div",{style:{fontSize:14,fontWeight:700}},"\u2192 "+p.label),
+                React.createElement("div",{style:{fontSize:11,opacity:0.8,marginTop:2}},p.law)
+              )
+            })
+          ),
+          React.createElement("div",{style:{display:"flex",justifyContent:"flex-end"}},
+            React.createElement("button",{onClick:function(){setModal(null)},style:btnS},"Отмена")
+          )
+        ),
+
 
         // TASK DETAIL
         modal==="task"&&selTask&&React.createElement(React.Fragment,null,

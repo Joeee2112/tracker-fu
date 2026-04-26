@@ -3,16 +3,18 @@ FU.calcDl = function(r, kd, mf) {
   if (r.from === "kd_meeting" && r.days === -14) {
     var off = mf === "remote" ? -30 : -14;
     var b = kd.kd_meeting;
-    return b ? FU.addD(b, off) : "";
+    return b ? FU.shiftToBusiness(FU.addD(b, off)) : "";
   }
   var b = kd[r.from];
   if (!b) return "";
   if (r.biz) return FU.addBD(b, r.days);
-  return FU.addD(b, r.days);
+  // календарные дни — но если выпало на нерабочий, переносим вперёд (ст. 193 ГК)
+  return FU.shiftToBusiness(FU.addD(b, r.days));
 };
 
-FU.mkTasks = function(kd, mf) {
-  return FU.TASKS.map(function(t) {
+FU.mkTasks = function(kd, mf, procedure) {
+  var src = FU.getTasksFor(procedure || "restructuring");
+  return src.map(function(t) {
     return {
       id: FU.uid(), phase: t.p, order: t.o, title: t.t, desc: t.d,
       law: t.l, dl: t.dl, priority: t.pr, links: t.lk || [],
@@ -73,4 +75,31 @@ FU.nearestTask = function(d) {
     return (da < 0 ? 999 + Math.abs(da) : da) - (db < 0 ? 999 + Math.abs(db) : db);
   });
   return p[0];
+};
+
+// Переход между процедурами (например, Реструктуризация → Реализация)
+// Сохраняет уже выполненные задачи как «исторические», добавляет задачи новой процедуры
+FU.switchProcedure = function(d, newProcedure, newKd) {
+  // Сохраняем выполненные задачи старой процедуры в архив
+  var doneTasks = d.tasks.filter(function(t) { return t.done; }).map(function(t) {
+    return Object.assign({}, t, { phase: "archive_" + (d.procedure || "restructuring") });
+  });
+  // Сохраняем custom задачи
+  var customTasks = d.tasks.filter(function(t) { return t.phase === "custom"; });
+  // Новая ключевая дата процедуры — момент перехода
+  var kd = Object.assign({}, d.kd || {}, newKd || {});
+  if (!kd.kd_procedure) kd.kd_procedure = FU.today();
+  kd = FU.autoKd(kd);
+  // Создаём задачи новой процедуры
+  var newTasks = FU.mkTasks(kd, d.meetingFormat || "inperson", newProcedure);
+  return Object.assign({}, d, {
+    procedure: newProcedure,
+    kd: kd,
+    tasks: doneTasks.concat(newTasks).concat(customTasks),
+    journal: (d.journal || []).concat([{
+      id: FU.uid(),
+      date: FU.today(),
+      text: "Процедура изменена: " + (FU.PROCEDURES.find(function(p){return p.id===d.procedure})||{label:""}).label + " → " + (FU.PROCEDURES.find(function(p){return p.id===newProcedure})||{label:""}).label
+    }])
+  });
 };
