@@ -149,7 +149,25 @@ function App(){
   var updateKD=(key,val)=>{setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var nk=FU.autoKd({...d.keyDates,[key]:val});var nt=FU.recalc(d.tasks,nk,d.meetingFormat);var e={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Дата \xab"+(FU.KD_META.find(m=>m.id===key)?.label)+"\xbb \u2192 "+FU.fmt(val)+". Пересчитано."};return{...d,keyDates:nk,tasks:nt,journal:[...d.journal,e]}}))};
   var changeMF=nf=>{setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var nt=FU.recalc(d.tasks,d.keyDates,nf);var e={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Формат \u2192 "+(nf==="remote"?"заочное":"очное")+". Пересчитано."};return{...d,meetingFormat:nf,tasks:nt,journal:[...d.journal,e]}}))};
   var addJ=()=>{if(!jt.trim()||!deb)return;setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,journal:[...d.journal,{id:FU.uid(),date:new Date().toISOString().split("T")[0],text:jt.trim()}]}));setJt("")};
-  var addCustomTask=()=>{if(!customForm.title.trim())return;var mx=deb.tasks.filter(t=>t.phase==="custom").reduce((m,t)=>Math.max(m,t.order),99);var nt={id:FU.uid(),phase:"custom",order:mx+1,title:customForm.title,desc:customForm.desc,law:customForm.law,dl:null,deadline:customForm.deadline||"",done:false,doneDate:null,notes:"",priority:"medium",links:[]};setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,tasks:[...d.tasks,nt]}));setCustomForm({title:"",desc:"",deadline:"",law:""});setModal(null)};
+  var addCustomTask=()=>{
+    if(!customForm.title.trim())return;
+    var mx=deb.tasks.filter(t=>t.phase==="custom").reduce((m,t)=>Math.max(m,t.order),99);
+    var nt={id:FU.uid(),phase:"custom",order:mx+1,title:customForm.title,desc:customForm.desc,law:customForm.law,dl:null,deadline:customForm.deadline||"",done:false,doneDate:null,notes:"",priority:"medium",links:[]};
+    // Парная задача: если в названии «заседание» и есть дедлайн — предложить создать «документы в суд за 5 дн.»
+    var newTasks=[nt];
+    var titleLow=customForm.title.toLowerCase();
+    var isHearing=titleLow.indexOf("\u0437\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435")>-1;
+    if(isHearing&&customForm.deadline){
+      var pairDeadline=FU.shiftToBusiness(FU.addD(customForm.deadline,-5));
+      var pairTitle="\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u0432 \u0441\u0443\u0434: "+customForm.title;
+      if(confirm("\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u0430\u0440\u043d\u0443\u044e \u0437\u0430\u0434\u0430\u0447\u0443?\n\n\u00ab"+pairTitle+"\u00bb\n\u0414\u0435\u0434\u043b\u0430\u0439\u043d: "+FU.fmt(pairDeadline)+" (\u0437\u0430 5 \u043a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u043d\u044b\u0445 \u0434\u043d\u0435\u0439 \u0434\u043e \u0437\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u044f)")){
+        newTasks.push({id:FU.uid(),phase:"custom",order:mx+2,title:pairTitle,desc:"\u041d\u0430\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0432 \u0430\u0440\u0431\u0438\u0442\u0440\u0430\u0436\u043d\u044b\u0439 \u0441\u0443\u0434 \u043e\u0442\u0447\u0451\u0442 \u0438 \u0438\u043d\u044b\u0435 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u043f\u043e \u0437\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u044e",law:customForm.law||"\u043f.7 \u0441\u0442.213.12",dl:null,deadline:pairDeadline,done:false,doneDate:null,notes:"",priority:"high",links:[],parentId:nt.id});
+      }
+    }
+    setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,tasks:[...d.tasks,...newTasks]}));
+    setCustomForm({title:"",desc:"",deadline:"",law:""});
+    setModal(null)
+  };
   var delCustomTask=tid=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,tasks:d.tasks.filter(t=>t.id!==tid)}))};
   var exportData=()=>{var data=JSON.stringify({version:2,exported:new Date().toISOString(),debtors},null,2);var blob=new Blob([data],{type:"application/json"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="fu_backup_"+new Date().toISOString().split("T")[0]+".json";a.click();URL.revokeObjectURL(url)};
   var importData=e=>{var file=e.target.files?.[0];if(!file)return;var reader=new FileReader();reader.onload=ev=>{try{var data=JSON.parse(ev.target.result);if(data.debtors?.length){if(confirm("Импортировать "+data.debtors.length+" должник(ов)?")){setDebtors(data.debtors);setAid(data.debtors[0].id)}}else alert("Файл пуст.")}catch(e){alert("Ошибка.")}};reader.readAsText(file);e.target.value=""};
