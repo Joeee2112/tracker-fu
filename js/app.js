@@ -193,6 +193,25 @@ function App(){
   // Виртуальные задачи из кредиторов (срок возражений + дата заседания) + текущие платежи
   var credTasks=useMemo(()=>{if(!deb)return[];var out=[];(deb.creditors||[]).forEach(function(c){if(c.objectionDeadline&&!c.objectionFiled&&c.status==="pending"){out.push({id:"cobj_"+c.id,phase:"registry",order:15.5,title:"\u2696 Возражения: "+c.name,desc:"\u0421\u0440\u043e\u043a \u043f\u043e\u0434\u0430\u0447\u0438 \u0432\u043e\u0437\u0440\u0430\u0436\u0435\u043d\u0438\u0439",law:"\u0441\u0442.100",deadline:c.objectionDeadline,done:false,doneDate:null,notes:"",priority:"high",links:[],_credId:c.id,_credType:"objection"})}if(c.fuOrderDeadline&&!c.fuOrderFiled&&c.status==="pending"){out.push({id:"cord_"+c.id,phase:"registry",order:15.55,title:"\u{1F4CB} \u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u0432 \u0441\u0443\u0434 (\u0424\u0423): "+c.name,desc:c.fuOrderDesc||"\u0421\u0440\u043e\u043a \u043f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u043e\u0432 \u043f\u043e \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0435\u043d\u0438\u044e \u0441\u0443\u0434\u0430",law:"\u0441\u0442.66 \u0410\u041f\u041a, \u0441\u0442.100",deadline:c.fuOrderDeadline,done:false,doneDate:null,notes:"",priority:"high",links:[],_credId:c.id,_credType:"courtOrder"})}if(c.courtDate&&c.status==="pending"){out.push({id:"ccrt_"+c.id,phase:"registry",order:15.6,title:"\u2696\uFE0F \u0417\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435: "+c.name,desc:"\u0421\u0443\u0434\u0435\u0431\u043d\u043e\u0435 \u0437\u0430\u0441\u0435\u0434\u0430\u043d\u0438\u0435 \u043f\u043e \u0442\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044e",law:"\u0441\u0442.100",deadline:c.courtDate,done:false,doneDate:null,notes:"",priority:"high",links:[],_credId:c.id,_credType:"court"})}});(deb.currentPayments||[]).forEach(function(c){if(c.dueDate&&!c.paid){out.push({id:"cp_"+c.id,phase:"execution",order:99,title:"\u{1F4B0} "+c.description,desc:"\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043f\u043b\u0430\u0442\u0451\u0436 ("+c.queue+" \u043e\u0447\u0435\u0440\u0435\u0434\u044c)"+(c.amount?": "+(parseFloat(c.amount)||0).toLocaleString("ru-RU")+" \u20bd":""),law:"\u0441\u0442.5, 134",deadline:c.dueDate,done:false,doneDate:null,notes:"",priority:"high",links:[],_cpId:c.id,_credType:"current"})}});return out},[deb]);
   var allTasks=useMemo(()=>deb?[...deb.tasks,...credTasks]:[],[deb,credTasks]);
+  // События только для календаря (не для общего списка задач): поручения кредиторам
+  var calendarOnlyEvents=useMemo(()=>{
+    if(!deb)return[];
+    var out=[];
+    (deb.creditors||[]).forEach(function(c){
+      if(c.credOrderDeadline&&!c.credOrderFiled&&c.status==="pending"){
+        out.push({
+          id:"credord_"+c.id,
+          phase:"registry",
+          title:"\u{1F4CB} \u041a\u0440\u0435\u0434\u0438\u0442\u043e\u0440: "+c.name,
+          desc:c.credOrderDesc||"\u0421\u0440\u043e\u043a \u043f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u043a\u0440\u0435\u0434\u0438\u0442\u043e\u0440\u043e\u043c \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u043e\u0432",
+          deadline:c.credOrderDeadline,
+          done:false,
+          _calendarOnly:true
+        });
+      }
+    });
+    return out;
+  },[deb]);
   var stats=useMemo(()=>{if(!deb)return{t:0,dn:0,ov:0,sn:0,pct:0};var ts=allTasks,dn=ts.filter(x=>x.done).length;return{t:ts.length,dn,ov:ts.filter(x=>!x.done&&x.deadline&&FU.dleft(x.deadline)<0).length,sn:ts.filter(x=>!x.done&&x.deadline&&FU.dleft(x.deadline)>=0&&FU.dleft(x.deadline)<=7).length,pct:Math.round(dn/ts.length*100)}},[deb,allTasks]);
   var dashD=useMemo(()=>{var all=[];debtors.forEach(d=>{var ct=[];(d.creditors||[]).forEach(function(c){if(c.objectionDeadline&&!c.objectionFiled&&c.status==="pending")ct.push({id:"cobj_"+c.id,phase:"registry",title:"\u2696 Возражения: "+c.name,deadline:c.objectionDeadline,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum});if(c.fuOrderDeadline&&!c.fuOrderFiled&&c.status==="pending")ct.push({id:"cord_"+c.id,phase:"registry",title:"\u{1F4CB} \u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u0432 \u0441\u0443\u0434 (\u0424\u0423): "+c.name,deadline:c.fuOrderDeadline,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum});if(c.courtDate&&c.status==="pending")ct.push({id:"ccrt_"+c.id,phase:"registry",title:"\u2696\uFE0F Заседание: "+c.name,deadline:c.courtDate,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum})});(d.currentPayments||[]).forEach(function(c){if(c.dueDate&&!c.paid)ct.push({id:"cp_"+c.id,phase:"execution",title:"\u{1F4B0} "+c.description,deadline:c.dueDate,done:false,did:d.id,dfio:d.fio,dcn:d.caseNum})});d.tasks.forEach(t=>{if(!t.done)all.push({...t,did:d.id,dfio:d.fio,dcn:d.caseNum})});ct.forEach(t=>all.push(t))});var ov=all.filter(t=>t.deadline&&FU.dleft(t.deadline)<0).sort((a,b)=>FU.dleft(a.deadline)-FU.dleft(b.deadline));var wk=all.filter(t=>t.deadline&&FU.dleft(t.deadline)>=0&&FU.dleft(t.deadline)<=7).sort((a,b)=>FU.dleft(a.deadline)-FU.dleft(b.deadline));var td=debtors.reduce((s,d)=>s+d.tasks.filter(t=>t.done).length,0);return{ov,wk,td}},[debtors]);
   var filtered=useMemo(()=>{if(!deb)return[];var ts=allTasks;if(ph!=="all")ts=ts.filter(t=>t.phase===ph);if(q.trim()){var s=q.toLowerCase();ts=ts.filter(t=>t.title.toLowerCase().includes(s)||t.desc.toLowerCase().includes(s)||(t.law||"").toLowerCase().includes(s))}return ts.sort((a,b)=>{if(a.done!==b.done)return a.done?1:-1;var da=a.deadline?new Date(a.deadline).getTime():Infinity;var db2=b.deadline?new Date(b.deadline).getTime():Infinity;if(da!==db2)return da-db2;return a.order-b.order})},[deb,allTasks,ph,q]);
@@ -544,7 +563,7 @@ function App(){
         var first=new Date(y,m,1);var last=new Date(y,m+1,0);
         var startDow=(first.getDay()+6)%7;var dim=last.getDate();
         var cells=[];for(var i=0;i<startDow;i++)cells.push(null);for(var d=1;d<=dim;d++)cells.push(d);while(cells.length%7!==0)cells.push(null);
-        var tbd={};allTasks.forEach(function(t){if(!t.deadline)return;var dd=new Date(t.deadline);if(dd.getFullYear()===y&&dd.getMonth()===m){var day=dd.getDate();if(!tbd[day])tbd[day]=[];tbd[day].push(t)}});
+        var tbd={};[...allTasks,...calendarOnlyEvents].forEach(function(t){if(!t.deadline)return;var dd=new Date(t.deadline);if(dd.getFullYear()===y&&dd.getMonth()===m){var day=dd.getDate();if(!tbd[day])tbd[day]=[];tbd[day].push(t)}});
         var td=new Date();var today=(td.getFullYear()===y&&td.getMonth()===m)?td.getDate():null;
         return React.createElement("div",null,
           React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}},
