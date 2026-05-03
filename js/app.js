@@ -144,6 +144,54 @@ function App(){
   };
   var delDeb=id=>{if(!confirm("Удалить должника?"))return;setDebtors(p=>p.filter(d=>d.id!==id));if(aid===id)setAid(debtors.find(d=>d.id!==id)?.id||null)};
   var tog=tid=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,tasks:d.tasks.map(t=>t.id!==tid?t:{...t,done:!t.done,doneDate:!t.done?new Date().toISOString().split("T")[0]:null})}))};
+  // Развилка задачи «Срок представления плана»: outcome = "received" | "not_received"
+  // Если "not_received":
+  //   1) добавляем задачу «Провести собрание для перехода к реализации»;
+  //   2) если kd_meeting пуста — проставляем = закрытие реестра + 60 дн (ст.213.12 п.5);
+  //      это автоматом подтягивает уведомление кредиторов (-14/-30 дн), отчёт ФУ (-5 дн) и публикацию (+5 дн).
+  var togPlanOutcome=(tid,outcome)=>{
+    setDebtors(p=>p.map(d=>{
+      if(d.id!==aid)return d;
+      var today=new Date().toISOString().split("T")[0];
+      var newTasks=d.tasks.map(t=>{
+        if(t.id!==tid)return t;
+        // Если уже выполнено и тыкаем тот же outcome — снимаем галочку
+        if(t.done&&t.outcome===outcome)return {...t,done:false,doneDate:null,outcome:null};
+        return {...t,done:true,doneDate:today,outcome:outcome};
+      });
+      var extra=[];
+      var newKd=d.keyDates;
+      var meetingDateMsg="";
+      if(outcome==="not_received"){
+        var rc=d.keyDates&&d.keyDates.kd_registry_close;
+        var dl60=rc?FU.shiftToBusiness(FU.addD(rc,60)):"";
+        // 1) Задача «Провести собрание для перехода к реализации» — если ещё не добавлена
+        var already=d.tasks.some(t=>t.id_key==="meeting_no_plan");
+        if(!already){
+          var mx=d.tasks.reduce((m,t)=>Math.max(m,t.order||0),0);
+          extra.push({
+            id:FU.uid(),phase:"meeting",order:mx+1,
+            id_key:"meeting_no_plan",
+            title:"\u041f\u0440\u043e\u0432\u0435\u0441\u0442\u0438 \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u0435 \u0434\u043b\u044f \u043f\u0435\u0440\u0435\u0445\u043e\u0434\u0430 \u043a \u0440\u0435\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u0438",
+            desc:"\u041f\u043b\u0430\u043d \u043d\u0435 \u043f\u043e\u043b\u0443\u0447\u0435\u043d. \u041d\u0430 \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u0438 \u043f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u043e \u0440\u0435\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u0438 \u0438\u043c\u0443\u0449\u0435\u0441\u0442\u0432\u0430. \u0414\u0435\u0434\u043b\u0430\u0439\u043d: 60 \u0434\u043d. \u0441 \u0437\u0430\u043a\u0440\u044b\u0442\u0438\u044f \u0440\u0435\u0435\u0441\u0442\u0440\u0430.",
+            law:"\u043f.4, 5 \u0441\u0442.213.12",
+            dl:{from:"kd_registry_close",days:60},
+            deadline:dl60,done:false,doneDate:null,notes:"",priority:"high",links:[]
+          });
+        }
+        // 2) Автозаполнение kd_meeting (если пусто) — чтобы все привязанные задачи пересчитались
+        if(dl60&&!d.keyDates.kd_meeting){
+          newKd=FU.autoKd({...d.keyDates,kd_meeting:dl60});
+          newTasks=FU.recalc(newTasks,newKd,d.meetingFormat);
+          meetingDateMsg=" \u0414\u0430\u0442\u0430 \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u044f \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0430 \u043d\u0430 "+FU.fmt(dl60)+", \u0441\u0440\u043e\u043a\u0438 \u0432\u0441\u0435\u0445 \u0441\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0445 \u0437\u0430\u0434\u0430\u0447 \u043f\u0435\u0440\u0435\u0441\u0447\u0438\u0442\u0430\u043d\u044b.";
+        }else if(dl60&&d.keyDates.kd_meeting&&new Date(d.keyDates.kd_meeting)>new Date(dl60)){
+          meetingDateMsg=" \u26a0\ufe0f \u0422\u0435\u043a\u0443\u0449\u0430\u044f \u0434\u0430\u0442\u0430 \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u044f ("+FU.fmt(d.keyDates.kd_meeting)+") \u041f\u041e\u0417\u0416\u0415 \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u0430 60 \u0434\u043d. ("+FU.fmt(dl60)+") \u2014 \u043f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435!";
+        }
+      }
+      var jText=outcome==="received"?"\u041f\u043b\u0430\u043d \u0440\u0435\u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u0438\u0437\u0430\u0446\u0438\u0438 \u043f\u043e\u043b\u0443\u0447\u0435\u043d \u0432 \u0441\u0440\u043e\u043a":"\u041f\u043b\u0430\u043d \u0440\u0435\u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u0438\u0437\u0430\u0446\u0438\u0438 \u041d\u0415 \u043f\u043e\u043b\u0443\u0447\u0435\u043d. \u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0430 \u0437\u0430\u0434\u0430\u0447\u0430 \u043e \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u0438 \u0434\u043b\u044f \u043f\u0435\u0440\u0435\u0445\u043e\u0434\u0430 \u043a \u0440\u0435\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u0438."+meetingDateMsg;
+      return{...d,keyDates:newKd,tasks:[...newTasks,...extra],journal:[...(d.journal||[]),{id:FU.uid(),date:today,text:jText}]};
+    }));
+  };
   var togX=(did,tid)=>{setDebtors(p=>p.map(d=>d.id!==did?d:{...d,tasks:d.tasks.map(t=>t.id!==tid?t:{...t,done:!t.done,doneDate:!t.done?new Date().toISOString().split("T")[0]:null})}))};
   var updT=(tid,f,v)=>{setDebtors(p=>p.map(d=>d.id!==aid?d:{...d,tasks:d.tasks.map(t=>t.id!==tid?t:{...t,[f]:v})}))};
   var updateKD=(key,val)=>{setDebtors(p=>p.map(d=>{if(d.id!==aid)return d;var nk=FU.autoKd({...d.keyDates,[key]:val});var nt=FU.recalc(d.tasks,nk,d.meetingFormat);var e={id:FU.uid(),date:new Date().toISOString().split("T")[0],text:"Дата \xab"+(FU.KD_META.find(m=>m.id===key)?.label)+"\xbb \u2192 "+FU.fmt(val)+". Пересчитано."};return{...d,keyDates:nk,tasks:nt,journal:[...d.journal,e]}}))};
@@ -353,15 +401,22 @@ function App(){
           FU.PHASES.map(function(p){return React.createElement("button",{key:p.id,onClick:function(){setPh(p.id)},style:{padding:"6px 12px",borderRadius:9,fontSize:11,fontWeight:ph===p.id?700:500,color:ph===p.id?"#fff":"#6b7280",cursor:"pointer",border:"none",background:ph===p.id?ac:"transparent",fontFamily:"inherit",whiteSpace:"nowrap"}},p.icon+" "+p.label+(phC[p.id]&&phC[p.id].t>0?" "+phC[p.id].d+"/"+phC[p.id].t:""))})
         ),
         filtered.map(function(t){
-          var isN=t.id_key==="meeting_notify",isC=t.phase==="custom";
-          return React.createElement("div",{key:t.id,style:{background:"#fff",border:"1px solid "+bd,borderRadius:12,padding:"12px 14px",marginBottom:6,display:"grid",gridTemplateColumns:"24px 1fr auto",gap:10,alignItems:"start",opacity:t.done?0.45:1}},
-            React.createElement("div",{onClick:function(){if(t._credType==="objection"){updCred(t._credId,"objectionFiled",true)}else if(t._credType==="current"){togCpPaid(t._cpId)}else if(!t._credType){tog(t.id)}},style:{width:20,height:20,borderRadius:"50%",border:"2px solid "+(t.done?"#16a34a":"#d1d5db"),display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",background:t.done?"#16a34a":"transparent",fontSize:11,color:"#fff",fontWeight:700,marginTop:2}},t.done&&"\u2713"),
+          var isN=!!t.meetingDependent,isC=t.phase==="custom",isPlan=t.id_key==="plan_check";
+          return React.createElement("div",{key:t.id,style:{background:"#fff",border:"1px solid "+bd,borderRadius:12,padding:"12px 14px",marginBottom:6,display:"grid",gridTemplateColumns:(isPlan?"56px":"24px")+" 1fr auto",gap:10,alignItems:"start",opacity:t.done&&!isPlan?0.45:1}},
+            isPlan
+              ? React.createElement("div",{style:{display:"flex",gap:3,marginTop:1}},
+                  React.createElement("div",{onClick:function(){togPlanOutcome(t.id,"received")},title:"\u041f\u043b\u0430\u043d \u043f\u043e\u043b\u0443\u0447\u0435\u043d",style:{width:24,height:22,borderRadius:6,border:"1.5px solid "+(t.done&&t.outcome==="received"?"#16a34a":"#d1d5db"),background:t.done&&t.outcome==="received"?"#16a34a":"transparent",color:t.done&&t.outcome==="received"?"#fff":"#16a34a",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}},"\u2713"),
+                  React.createElement("div",{onClick:function(){togPlanOutcome(t.id,"not_received")},title:"\u041f\u043b\u0430\u043d \u043d\u0435 \u043f\u043e\u043b\u0443\u0447\u0435\u043d",style:{width:24,height:22,borderRadius:6,border:"1.5px solid "+(t.done&&t.outcome==="not_received"?"#dc2626":"#d1d5db"),background:t.done&&t.outcome==="not_received"?"#dc2626":"transparent",color:t.done&&t.outcome==="not_received"?"#fff":"#dc2626",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}},"\u2715")
+                )
+              : React.createElement("div",{onClick:function(){if(t._credType==="objection"){updCred(t._credId,"objectionFiled",true)}else if(t._credType==="current"){togCpPaid(t._cpId)}else if(!t._credType){tog(t.id)}},style:{width:20,height:20,borderRadius:"50%",border:"2px solid "+(t.done?"#16a34a":"#d1d5db"),display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",background:t.done?"#16a34a":"transparent",fontSize:11,color:"#fff",fontWeight:700,marginTop:2}},t.done&&"\u2713"),
             React.createElement("div",{onClick:function(){if(t._credType==="current"){setModal("currentPayments")}else if(t._credType){setModal("creditors")}else{setSelTask(t);setModal("task")}},style:{cursor:"pointer"}},
               React.createElement("div",{style:{fontWeight:600,fontSize:13,textDecoration:t.done?"line-through":"none",marginBottom:2,color:tx}},t.title,isC&&React.createElement("span",{style:{...tg("#f3e8ff","#7c3aed"),marginLeft:4}},"свои")),
               React.createElement("div",{style:{fontSize:11,color:txm,lineHeight:1.5}},t.desc),
               React.createElement("div",null,
                 t.law&&React.createElement("span",{style:tg("#eef2ff","#4f46e5")},t.law),
                 t.priority==="high"&&React.createElement("span",{style:tg("#fef2f2","#dc2626")},"Важно"),
+                isPlan&&t.outcome==="received"&&React.createElement("span",{style:tg("#dcfce7","#16a34a")},"\u2713 \u041f\u043b\u0430\u043d \u043f\u043e\u043b\u0443\u0447\u0435\u043d"),
+                isPlan&&t.outcome==="not_received"&&React.createElement("span",{style:tg("#fee2e2","#dc2626")},"\u2715 \u041f\u043b\u0430\u043d \u041d\u0415 \u043f\u043e\u043b\u0443\u0447\u0435\u043d"),
                 isN&&React.createElement("span",{style:tg("#f3e8ff","#7c3aed")},deb.meetingFormat==="remote"?"заочное, 30 дн.":"очное, 14 дн."),
                 t.dl&&React.createElement("span",{style:tg("#f1f5f9","#64748b")},"\u043e\u0442 \xab"+(FU.KD_META.find(function(m){return m.id===t.dl.from})?.label?.slice(0,18))+"\xbb "+(t.dl.biz?t.dl.days+" раб.дн.":(isN?(deb.meetingFormat==="remote"?"-30":"-14"):(t.dl.days>=0?"+"+t.dl.days:t.dl.days))+"дн.")),
                 !t.deadline&&t.dl&&React.createElement("span",{style:tg("#fffbeb","#d97706")},"\u26a0 Укажите дату"),
