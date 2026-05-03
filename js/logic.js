@@ -36,7 +36,10 @@ FU.recalc = function(tasks, kd, mf) {
 FU.autoKd = function(kd) {
   var r = Object.assign({}, kd);
   FU.KD_META.forEach(function(m) {
-    if (m.auto && !r[m.id]) {
+    if (!m.auto) return;
+    // always:true — пересчитывать всегда (если есть родитель)
+    // иначе — заполнять только пустое поле
+    if (m.always || !r[m.id]) {
       var v = m.auto(r);
       if (v) r[m.id] = v;
     }
