@@ -51,6 +51,62 @@ function App(){
 
   var savedToCloud=useRef(false);
   var saveTimer=useRef(null);
+
+  // Разовая миграция загруженных данных под новые поля задач (plan_check, ЕФРСБ-публикации о собрании).
+  // Идемпотентна — повторный запуск ничего не ломает.
+  var migrateDebtors=function(list){
+    if(!list||!list.length)return list;
+    return list.map(function(d){
+      if(!d.tasks)return d;
+      var tasks=d.tasks.slice();
+      var changed=false;
+      // 1) Маркер plan_check для существующей задачи «Срок представления проекта плана»
+      tasks=tasks.map(function(t){
+        if(t.id_key)return t;
+        if(t.title&&t.title.indexOf("\u0421\u0440\u043e\u043a \u043f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u043f\u0440\u043e\u0435\u043a\u0442\u0430 \u043f\u043b\u0430\u043d\u0430")===0){
+          changed=true;
+          return Object.assign({},t,{id_key:"plan_check"});
+        }
+        return t;
+      });
+      // 2) Добавить ЕФРСБ-публикацию о собрании (-14/-30) если её нет — только для реструктуризации
+      if((d.procedure||"restructuring")==="restructuring"){
+        var hasEfrsbNotify=tasks.some(function(t){return t.id_key==="meeting_efrsb_notify"});
+        if(!hasEfrsbNotify){
+          var dlNotify=d.keyDates&&d.keyDates.kd_meeting?FU.calcDl({from:"kd_meeting",days:-14},d.keyDates,d.meetingFormat||"inperson"):"";
+          tasks.push({
+            id:FU.uid(),phase:"meeting",order:24.5,
+            id_key:"meeting_efrsb_notify",
+            title:"\u041f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u044f \u0432 \u0415\u0424\u0420\u0421\u0411 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u043e \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u0438",
+            desc:"\u041e\u0447\u043d\u043e\u0435 14\u0434\u043d, \u0437\u0430\u043e\u0447\u043d\u043e\u0435 30\u0434\u043d. \u041f\u043e\u0432\u0435\u0441\u0442\u043a\u0430, \u0432\u0440\u0435\u043c\u044f, \u043f\u043e\u0440\u044f\u0434\u043e\u043a \u043e\u0437\u043d\u0430\u043a\u043e\u043c\u043b\u0435\u043d\u0438\u044f. \u041f\u0440\u0438 \u0437\u0430\u043e\u0447\u043d\u043e\u043c \u2014 \u0431\u044e\u043b\u043b\u0435\u0442\u0435\u043d\u0438",
+            law:"\u043f.4 \u0441\u0442.13, \u043f.7, 11 \u0441\u0442.213.8",
+            dl:{from:"kd_meeting",days:-14},
+            deadline:dlNotify,done:false,doneDate:null,notes:"",priority:"high",
+            links:[{l:"\u0415\u0424\u0420\u0421\u0411",u:"https://bankrot.fedresurs.ru/"}],
+            meetingDependent:true
+          });
+          changed=true;
+        }
+        // 3) Публикация результатов в ЕФРСБ (+3 кал.дн.) если её нет
+        var hasEfrsbResult=tasks.some(function(t){return t.title&&t.title.indexOf("\u041f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u044f \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432 \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u044f \u0432 \u0415\u0424\u0420\u0421\u0411")===0});
+        if(!hasEfrsbResult){
+          var dlResult=d.keyDates&&d.keyDates.kd_meeting?FU.calcDl({from:"kd_meeting",days:3},d.keyDates,d.meetingFormat||"inperson"):"";
+          tasks.push({
+            id:FU.uid(),phase:"meeting",order:27.5,
+            title:"\u041f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u044f \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432 \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u044f \u0432 \u0415\u0424\u0420\u0421\u0411",
+            desc:"3 \u043a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u043d\u044b\u0445 \u0434\u043d\u044f. \u041f\u0440\u0438 \u0437\u0430\u043e\u0447\u043d\u043e\u043c \u2014 \u043f\u0440\u0438\u043b\u043e\u0436\u0438\u0442\u044c \u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u0438 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b",
+            law:"\u043f.7 \u0441\u0442.12, \u043f.13 \u0441\u0442.213.8",
+            dl:{from:"kd_meeting",days:3},
+            deadline:dlResult,done:false,doneDate:null,notes:"",priority:"high",
+            links:[{l:"\u0415\u0424\u0420\u0421\u0411",u:"https://bankrot.fedresurs.ru/"}]
+          });
+          changed=true;
+        }
+      }
+      return changed?Object.assign({},d,{tasks:tasks}):d;
+    });
+  };
+
   useEffect(()=>{
     var savedAid=null;
     try{var ls=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(ls&&ls.a)savedAid=ls.a}catch(e){}
@@ -58,17 +114,18 @@ function App(){
     if(FU.cloudReady){
       FU.loadFromCloud().then(function(cd){
         if(cd&&cd.length){
+          cd=migrateDebtors(cd);
           var validAid=savedAid&&cd.find(function(d){return d.id===savedAid})?savedAid:null;
           setDebtors(cd);
           setAid(validAid);
           console.log("[FU] Loaded from cloud:",cd.length,"debtors, active:",validAid);
         }
-        else{try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a);console.log("[FU] Cloud empty, loaded from localStorage")}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a);console.log("[FU] Cloud empty, loaded SEED")}}catch(e){}}
+        else{try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){var md=migrateDebtors(s.d);setDebtors(md);if(s.a)setAid(s.a);console.log("[FU] Cloud empty, loaded from localStorage")}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a);console.log("[FU] Cloud empty, loaded SEED")}}catch(e){}}
         // Set flag AFTER state setters so first useEffect run is skipped
         setTimeout(function(){initDone()},0);
       }).catch(function(e){console.error("[FU] Load failed:",e);setTimeout(initDone,0)});
     }else{
-      try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){setDebtors(s.d);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}
+      try{var s=JSON.parse(localStorage.getItem(FU.STORAGE_KEY));if(s&&s.d&&s.d.length){var md2=migrateDebtors(s.d);setDebtors(md2);if(s.a)setAid(s.a)}else if(FU.SEED_DATA&&FU.SEED_DATA.d){setDebtors(FU.SEED_DATA.d);if(FU.SEED_DATA.a)setAid(FU.SEED_DATA.a)}}catch(e){}
       setTimeout(initDone,0);
     }
     var beforeUnload=function(){if(saveTimer.current){clearTimeout(saveTimer.current);if(FU.cloudReady&&debtors.length>0)FU.saveToCloud(debtors);console.log("[FU] Saved on unload")}};
