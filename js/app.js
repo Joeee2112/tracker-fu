@@ -106,8 +106,32 @@ function App(){
           console.log("[FU][migrate]",d.fio,"— ЕФРСБ-публикация результатов добавлена, дедлайн:",dlResult);
         }
       }
+      // 4) Чистка битых дат (год < 2000 — почти наверняка опечатка ввода)
+      //    + пересчёт keyDates через autoKd (always:true перетирает старые автодаты)
+      //    + пересчёт дедлайнов всех задач через recalc.
+      var clean=Object.assign({},d.keyDates||{});
+      for(var k in clean){
+        if(clean[k]&&typeof clean[k]==="string"&&clean[k].length>=4){
+          var yr=parseInt(clean[k].slice(0,4),10);
+          if(yr<2000){
+            console.log("[FU][migrate]",d.fio,"— очищена битая дата",k,"=",clean[k]);
+            clean[k]="";
+          }
+        }
+      }
+      var newKd=FU.autoKd(clean);
+      var kdChanged=false;
+      if(newKd&&d.keyDates){
+        for(var kk in newKd){if(newKd[kk]!==(d.keyDates[kk]||"")){kdChanged=true;break}}
+        if(!kdChanged){for(var kk2 in d.keyDates){if((d.keyDates[kk2]||"")!==(newKd[kk2]||"")){kdChanged=true;break}}}
+      }
+      if(kdChanged){
+        console.log("[FU][migrate]",d.fio,"— keyDates пересчитаны через autoKd");
+        tasks=FU.recalc(tasks,newKd,d.meetingFormat||"inperson");
+        changed=true;
+      }
       if(!changed)console.log("[FU][migrate]",d.fio,"— уже мигрирован, пропуск");
-      return changed?Object.assign({},d,{tasks:tasks}):d;
+      return changed?Object.assign({},d,{keyDates:newKd,tasks:tasks}):d;
     });
   };
 
