@@ -56,8 +56,9 @@ function App(){
   // Идемпотентна — повторный запуск ничего не ломает.
   var migrateDebtors=function(list){
     if(!list||!list.length)return list;
+    console.log("[FU][migrate] start, debtors:",list.length);
     return list.map(function(d){
-      if(!d.tasks)return d;
+      if(!d.tasks){console.log("[FU][migrate] skip",d.fio,"— no tasks");return d}
       var tasks=d.tasks.slice();
       var changed=false;
       // 1) Маркер plan_check для существующей задачи «Срок представления проекта плана»
@@ -65,6 +66,7 @@ function App(){
         if(t.id_key)return t;
         if(t.title&&t.title.indexOf("\u0421\u0440\u043e\u043a \u043f\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u043f\u0440\u043e\u0435\u043a\u0442\u0430 \u043f\u043b\u0430\u043d\u0430")===0){
           changed=true;
+          console.log("[FU][migrate]",d.fio,"— plan_check добавлен");
           return Object.assign({},t,{id_key:"plan_check"});
         }
         return t;
@@ -86,8 +88,8 @@ function App(){
             meetingDependent:true
           });
           changed=true;
+          console.log("[FU][migrate]",d.fio,"— ЕФРСБ-публикация о собрании добавлена, дедлайн:",dlNotify);
         }
-        // 3) Публикация результатов в ЕФРСБ (+3 кал.дн.) если её нет
         var hasEfrsbResult=tasks.some(function(t){return t.title&&t.title.indexOf("\u041f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u044f \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432 \u0441\u043e\u0431\u0440\u0430\u043d\u0438\u044f \u0432 \u0415\u0424\u0420\u0421\u0411")===0});
         if(!hasEfrsbResult){
           var dlResult=d.keyDates&&d.keyDates.kd_meeting?FU.calcDl({from:"kd_meeting",days:3},d.keyDates,d.meetingFormat||"inperson"):"";
@@ -101,8 +103,10 @@ function App(){
             links:[{l:"\u0415\u0424\u0420\u0421\u0411",u:"https://bankrot.fedresurs.ru/"}]
           });
           changed=true;
+          console.log("[FU][migrate]",d.fio,"— ЕФРСБ-публикация результатов добавлена, дедлайн:",dlResult);
         }
       }
+      if(!changed)console.log("[FU][migrate]",d.fio,"— уже мигрирован, пропуск");
       return changed?Object.assign({},d,{tasks:tasks}):d;
     });
   };
